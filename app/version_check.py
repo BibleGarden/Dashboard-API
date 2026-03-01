@@ -3,8 +3,8 @@ from fastapi import APIRouter, Query
 from auth import RequireAPIKey
 from models import VersionCheckModel
 
-MIN_SUPPORTED_VERSION = "1.0.3"
-LATEST_VERSION = "1.0.3"
+MIN_SUPPORTED_VERSION = "1.1"
+LATEST_VERSION = "1.1"
 STORE_URL = "https://apps.apple.com/app/biblegarden/id123456789"
 
 MESSAGES = {
@@ -31,7 +31,7 @@ router = APIRouter()
 
 @router.get('/version-check', response_model=VersionCheckModel, operation_id="versionCheck", tags=["Version"])
 def version_check(
-    app_version: str = Query(..., description="Текущая версия приложения (semver, например 1.2.3)"),
+    app_version: str = Query(..., description="Текущая версия приложения (semver, например 1.2)"),
     api_key: str = RequireAPIKey
 ):
     """Проверка актуальности версии приложения / App version check"""
