@@ -14,6 +14,7 @@ from excerpt import router as excerpt_router
 from excerpt import get_books_info, check_audio_file_exists
 from checks import router as checks_router
 from audio import router as audio_router
+from about import router as about_router
 from auth import (
     Token, LoginRequest, authenticate_user, create_access_token,
     RequireAPIKey, RequireJWT
@@ -74,6 +75,10 @@ tags_metadata = [
         "description": "Streaming & Download mp3",
     },
     {
+        "name": "About",
+        "description": "Информация о проекте",
+    },
+    {
         "name": "Admin",
         "description": "Административные операции (требуется JWT токен)",
     },
@@ -99,6 +104,7 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(excerpt_router)
 api_router.include_router(checks_router)
 api_router.include_router(audio_router)
+api_router.include_router(about_router)
 
 
 @api_router.post('/auth/login', response_model=Token, operation_id="login", tags=["Auth"])

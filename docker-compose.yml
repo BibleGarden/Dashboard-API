@@ -9,6 +9,7 @@ services:
     volumes:
       # Host path with mp3 files. Set AUDIO_DIR in .env
       - ${AUDIO_DIR:?set AUDIO_DIR}:/audio
+      - ./app:/code/app
     restart: always
     networks:
       - mysql_default

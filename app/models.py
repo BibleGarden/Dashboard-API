@@ -261,3 +261,22 @@ class VoiceManualFixModel(BaseModel):
     end: float
     info: Optional[str] = None
 
+# About
+
+class LocalizedText(BaseModel):
+    en: str
+    ru: str
+    uk: str
+
+class AboutContactModel(BaseModel):
+    id: str
+    icon: str
+    url: str
+    sort_order: int
+    label: LocalizedText
+    subtitle: LocalizedText
+
+class AboutModel(BaseModel):
+    contacts: list[AboutContactModel]
+    about_text: LocalizedText
+
