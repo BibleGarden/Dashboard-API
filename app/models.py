@@ -280,3 +280,11 @@ class AboutModel(BaseModel):
     contacts: list[AboutContactModel]
     about_text: LocalizedText
 
+# Version Check
+
+class VersionCheckModel(BaseModel):
+    update_type: Literal["none", "soft", "hard"]
+    latest_version: str
+    store_url: str
+    message: Optional[LocalizedText] = None
+

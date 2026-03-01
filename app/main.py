@@ -15,6 +15,7 @@ from excerpt import get_books_info, check_audio_file_exists
 from checks import router as checks_router
 from audio import router as audio_router
 from about import router as about_router
+from version_check import router as version_check_router
 from auth import (
     Token, LoginRequest, authenticate_user, create_access_token,
     RequireAPIKey, RequireJWT
@@ -79,6 +80,10 @@ tags_metadata = [
         "description": "Информация о проекте",
     },
     {
+        "name": "Version",
+        "description": "Проверка версии приложения",
+    },
+    {
         "name": "Admin",
         "description": "Административные операции (требуется JWT токен)",
     },
@@ -105,6 +110,7 @@ api_router.include_router(excerpt_router)
 api_router.include_router(checks_router)
 api_router.include_router(audio_router)
 api_router.include_router(about_router)
+api_router.include_router(version_check_router)
 
 
 @api_router.post('/auth/login', response_model=Token, operation_id="login", tags=["Auth"])
