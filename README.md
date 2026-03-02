@@ -1,365 +1,64 @@
-# Bible API
+# Dashboard API
 
-REST API для работы с переводами Библии, озвучкой и аномалиями.
+Admin REST API for [Bible Garden](https://github.com/Bible-Garden) — data management, quality control, and export.
 
-## 🔐 Авторизация
+Built with FastAPI and MySQL.
 
-API использует двухуровневую систему авторизации:
+## Setup
 
-1. **Статичный API ключ** (`X-API-Key`) - для публичных GET эндпоинтов
-2. **JWT токены** (`Authorization: Bearer`) - для административных операций (24 часа)
-
-```bash
-# Публичные эндпоинты
-curl -H "X-API-Key: bible-api-key-2024" http://localhost:8084/api/translations
-
-# Административные эндпоинты
-TOKEN=$(curl -X POST http://localhost:8084/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq -r '.access_token')
-
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8084/api/voices/1/anomalies
-```
-
-📖 **Документация:** [docs/SECURITY.md](docs/SECURITY.md)
-🧪 **Тестирование:** `pytest tests/test_auth.py -v`
-
-## Аномалии озвучки
-
-### Статусы аномалий
-
-- `detected` - ошибка выявлена автоматически (по умолчанию)
-- `confirmed` - ошибка подтверждена при проверке
-- `disproved` - ошибка опровергнута, не подтверждена проверкой
-- `corrected` - выполнена ручная коррекция
-- `already_resolved` - уже исправлена ранее (только для системного использования)
-- `disproved_whisper` - автоматически опровергнута анализом Whisper (только для системного использования)
-
-### API методы
-
-#### GET /voices/{voice_code}/anomalies
-
-Получение списка аномалий для голоса с возможностью фильтрации по статусу.
-
-**Параметры:**
-- `voice_code` (path) - код голоса
-- `status` (query, optional) - фильтр по статусу аномалии
-
-**Пример запроса:**
-```
-GET /voices/1/anomalies?status=detected
-```
-
-#### PATCH /voices/anomalies/{anomaly_code}/status
-
-Обновление статуса аномалии с возможностью корректировки временных меток.
-
-**Параметры:**
-- `anomaly_code` (path) - код аномалии
-
-**Тело запроса:**
-```json
-{
-  "status": "detected|confirmed|disproved|corrected|disproved_whisper",
-  "begin": 10.5,  // только для статуса "corrected"
-  "end": 12.0     // только для статуса "corrected"
-}
-```
-
-**Правила валидации:**
-- Для статуса `corrected` поля `begin` и `end` **обязательны**
-- Для других статусов поля `begin` и `end` **недопустимы**
-- `begin` должно быть меньше `end`
-- Статусы `already_resolved` и `disproved_whisper` нельзя устанавливать вручную
-- **Нельзя изменить статус с `corrected` на `confirmed`**
-
-**Примеры запросов:**
-
-1. Подтверждение аномалии:
-```json
-{
-  "status": "confirmed"
-}
-```
-
-2. Опровержение аномалии:
-```json
-{
-  "status": "disproved"
-}
-```
-
-3. Коррекция с новыми временными метками:
-```json
-{
-  "status": "corrected",
-  "begin": 10.5,
-  "end": 12.0
-}
-```
-
-#### POST /voices/anomalies
-
-Создание новой аномалии озвучки.
-
-**Тело запроса:**
-```json
-{
-  "voice": 1,
-  "translation": 1,
-  "book_number": 1,
-  "chapter_number": 1,
-  "verse_number": 1,
-  "word": "слово",           // опционально
-  "position_in_verse": 5,    // опционально
-  "position_from_end": 3,    // опционально
-  "duration": 1.5,           // опционально
-  "speed": 2.0,              // опционально
-  "ratio": 1.8,              // обязательно, должно быть > 0
-  "anomaly_type": "manual",  // по умолчанию "manual"
-  "status": "detected"       // по умолчанию "detected"
-}
-```
-
-**Типы аномалий:**
-- `fast` - быстрое произношение
-- `slow` - медленное произношение  
-- `long` - длинная пауза
-- `short` - короткая пауза
-- `manual` - добавлена вручную (по умолчанию)
-
-**Правила валидации:**
-- Поле `ratio` обязательно и должно быть положительным числом
-- Поля `voice`, `translation`, `book_number`, `chapter_number`, `verse_number` обязательны
-- Система проверяет существование указанного голоса, перевода и стиха
-- Тип аномалии должен быть одним из допустимых значений
-
-**Пример успешного ответа:**
-```json
-{
-  "code": 123,
-  "voice": 1,
-  "translation": 1,
-  "book_number": 1,
-  "chapter_number": 1,
-  "verse_number": 1,
-  "word": "слово",
-  "position_in_verse": 5,
-  "position_from_end": 3,
-  "duration": 1.5,
-  "speed": 2.0,
-  "ratio": 1.8,
-  "anomaly_type": "manual",
-  "status": "detected",
-  "verse_start_time": 10.0,
-  "verse_end_time": 12.0,
-  "verse_text": "Текст стиха"
-}
-```
-
-### Логика работы с voice_manual_fixes
-
-При обновлении статуса аномалии система автоматически управляет таблицей `voice_manual_fixes`:
-
-#### Статусы DISPROVED и CORRECTED
-- Создается или обновляется запись в `voice_manual_fixes`
-- Для `DISPROVED`: используются оригинальные временные метки из `voice_alignments`
-- Для `CORRECTED`: используются переданные в запросе `begin` и `end`
-
-#### Статус CONFIRMED
-- Если есть запись в `voice_manual_fixes` с совпадающими временными метками - она удаляется
-- Если временные метки не совпадают - возвращается ошибка 422
-- Если записи нет - никаких действий не выполняется
-
-Это позволяет отслеживать стихи, которые были вручную проверены, чтобы при перепарсинге не создавать для них новые аномалии.
-
-## Отрывки с учетом корректировок
-
-### GET /excerpt_with_alignment
-
-Метод получения отрывков Библии с временными метками озвучки теперь автоматически учитывает корректировки из таблицы `voice_manual_fixes`.
-
-**Логика работы:**
-- Если для стиха есть запись в `voice_manual_fixes` - используются скорректированные временные метки
-- Если записи нет - используются оригинальные временные метки из `voice_alignments`
-- Реализовано через SQL COALESCE: `COALESCE(vmf.begin, a.begin)` и `COALESCE(vmf.end, a.end)`
-
-**Пример запроса:**
-```
-GET /excerpt_with_alignment?translation=16&excerpt=jhn 3:16-17&voice=1
-```
-
-В ответе поля `begin` и `end` для каждого стиха будут содержать актуальные временные метки с учетом всех корректировок.
-
-
-## Скачивание аудио (MP3)
-
-Аудио-файлы хранятся в структуре:
-
-
-
-Где  берется из БД () и заполняется плейсхолдерами по аналогии с .
-
-Скрипт скачивания находится в  и берёт активные голоса из БД:
-
-- 
-- 
-
-Запуск (внутри контейнера ):
-
-
-
-По умолчанию файлы пишутся в  (обычно  внутри контейнера).
-
-
-### Установка зависимостей
-
-```bash
-# Установить основные зависимости
-pip install mysql-connector-python fastapi uvicorn pydantic
-
-# Для разработки (опционально, может потребовать Python 3.12 или ниже)
-pip install pytest requests
-
-# Полная установка (может не работать с Python 3.13)
-# pip install -r requirements.txt
-```
-
-### Настройка базы данных
-
-1. Создайте runtime-переменные окружения для контейнера:
 ```bash
 cp .env.example .env
-```
+# fill in DB credentials, API_KEY, JWT_SECRET_KEY in .env
 
-2. Отредактируйте `.env` (DB_*, API_KEY, JWT_*, ADMIN_*). Для `ADMIN_PASSWORD_HASH` используйте формат с `$$` (например `$$2b$$12$$...`).
-
-3. Выполните миграции:
-```bash
-docker compose exec bible-api python3 migrate.py migrate
-```
-
-**Примечание**: Миграции для рефакторинга `voice_alignments` уже выполнены:
-- ✅ Добавлены поля `book_number`, `chapter_number`, `verse_number`
-- ✅ Созданы индексы для оптимизации производительности
-- ✅ Заполнены данные из связанных таблиц
-- ✅ Обновлен код для использования новых полей
-
-### Запуск сервера
-
-#### Запуск через Docker
-```bash
-# Запуск в фоне
 docker compose up -d --build
-
-# Проверить статус
-docker compose ps
-
-# Просмотр логов
-docker logs bible-api
-
-# Остановить
-docker compose down
-```
-Сервер будет доступен на: http://localhost:8084
-
-#### Проверка работы
-```bash
-# Swagger UI
-curl http://localhost:8084/docs
 ```
 
-### Запуск тестов
+The API will be available at `http://localhost:8084/api` (Swagger UI at `/docs`).
 
-⚠️ **ВАЖНО:** Integration тесты пишут в БД! См. [docs/TESTING.md](docs/TESTING.md)
+## Authorization
+
+Two-level auth system:
+
+1. **API Key** (`X-API-Key` header) — public GET endpoints
+2. **JWT Token** (`Authorization: Bearer`) — administrative operations (24h TTL)
+
+See [docs/SECURITY.md](docs/SECURITY.md) for details.
+
+## Running Tests
 
 ```bash
-# ✅ Безопасно - только unit тесты (НЕ пишут в БД)
-docker exec bible-api pytest tests/ -k "not integration" -v
+# One-time setup
+docker exec admin-api python tests/setup_test_db.py
 
-# ⚠️ ОПАСНО - все тесты (integration тесты ПИШУТ в БД!)
-docker exec bible-api pytest tests/ -v
+# Unit tests only (safe, uses mocks)
+docker exec admin-api pytest tests/ -k "not integration" -v
+
+# All tests (uses test DB cep_test)
+docker exec admin-api pytest tests/ -v
 ```
 
-## Миграции
+See [docs/TESTING.md](docs/TESTING.md) for details.
 
-Система использует собственный механизм миграций для управления схемой базы данных. Рекомендуется запускать миграции внутри Docker-контейнера.
-
-  > [!TIP]
-  > Вместо `migrate.py` можно также использовать `migrations/migration_manager.py`, но `migrate.py` короче и удобнее.
+## Migrations
 
 ```bash
-# Выполнить все ожидающие миграции
-docker compose exec bible-api python3 migrate.py migrate
-
-# Создать новую миграцию
-docker compose exec bible-api python3 migrate.py create "migration_name"
-
-# Показать статус миграций
-docker compose exec bible-api python3 migrate.py status
-
-# Откатить миграцию (только отметить как не выполненную)
-docker compose exec bible-api python3 migrate.py rollback "migration_file.sql"
-
-# Отметить миграцию как выполненную без запуска
-docker compose exec bible-api python3 migrate.py mark-executed "migration_file.sql"
+docker compose exec bible-api python3 migrate.py migrate          # run pending
+docker compose exec bible-api python3 migrate.py create "name"    # create new
+docker compose exec bible-api python3 migrate.py status            # show status
 ```
 
-Для локального запуска (если у вас настроено окружение):
-```bash
-python3 migrate.py migrate
-```
+See [migrations/README.md](migrations/README.md) for details.
 
-Подробнее см. [migrations/README.md](migrations/README.md)
+## Documentation
 
-## Документация
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — project structure, Docker commands, DB tables
+- [docs/SECURITY.md](docs/SECURITY.md) — endpoint protection, authorization examples
+- [docs/TESTING.md](docs/TESTING.md) — test setup and execution
+- [docs/API_ANOMALIES.md](docs/API_ANOMALIES.md) — voice anomalies API, manual fixes logic
+- [docs/AUDIO.md](docs/AUDIO.md) — MP3 downloading and storage
+- [docs/REVERSE_PROXY_SETUP.md](docs/REVERSE_PROXY_SETUP.md) — Nginx reverse proxy setup
+- [docs/iOS_TEST_CASES.md](docs/iOS_TEST_CASES.md) — iOS API test cases
 
-- **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Docker команды, структура проекта, таблицы БД
-- **[docs/SECURITY.md](docs/SECURITY.md)** - таблица защиты всех эндпоинтов, примеры авторизации
-- **[docs/TESTING.md](docs/TESTING.md)** - ⚠️ запуск тестов (ВАЖНО! integration тесты используют БД)
-- **[docs/REVERSE_PROXY_SETUP.md](docs/REVERSE_PROXY_SETUP.md)** - опциональная настройка Nginx reverse proxy
+## License
 
-## Скачивание аудио (MP3)
-
-Аудио-файлы хранятся в структуре:
-
-`<MP3_FILES_PATH>/<translation_alias>/<voice_alias>/mp3/<book_zerofill>/<chapter_zerofill>.mp3`
-
-Где `link_template` берется из БД (`voices.link_template`) и заполняется плейсхолдерами по аналогии с `/root/cep/php-parser/include.php:get_chapter_audio_url`.
-
-Скрипт скачивания: `scripts/download_audio.py`.
-
-Он скачивает mp3 для всех активных голосов из БД:
-- `voices.active = 1`
-- `translations.active = 1`
-
-Запуск (внутри контейнера `bible-api`):
-
-```bash
-# посмотреть, что будет скачиваться (без скачивания)
-docker exec bible-api python3 /code/scripts/download_audio.py --dry-run
-
-# скачать всё (может быть десятки ГБ)
-docker exec bible-api python3 /code/scripts/download_audio.py --yes --max-workers 8
-
-# скачать только один перевод/голос
-docker exec bible-api python3 /code/scripts/download_audio.py --yes --translation-alias syn --voice-alias bondarenko
-
-# NPU (npu/npu_uk): источник open.bible, там аудио в ZIP-архивах по книгам
-docker exec bible-api python3 /code/scripts/download_audio.py --yes --translation-alias npu --voice-alias npu_uk
-```
-
-По умолчанию файлы пишутся в `MP3_FILES_PATH` (обычно `/audio` внутри контейнера).
-
-## Compose bind mounts (AUDIO_DIR / SITE_DIR)
-
-`docker-compose.yml` uses host bind mounts and expects these variables in `.env`:
-
-- `AUDIO_DIR` (required): host directory with downloaded mp3 files. It will be mounted into the API container as `/audio`.
-- `SITE_DIR` (optional): host directory with static files for the root website. Used only by the `web` service. Defaults to `./site` (inside this repo).
-
-If you do not need the static site, you can run only the API:
-
-```bash
-docker compose up -d bible-api
-```
+[GPLv3](LICENSE)

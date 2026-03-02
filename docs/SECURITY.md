@@ -1,39 +1,39 @@
-# Безопасность и авторизация
+# Security and Authorization
 
-## Архитектура
+## Architecture
 
-API использует двухуровневую систему авторизации:
+The API uses a two-level authorization system:
 
-1. **API Key** (`X-API-Key`) - для публичных GET эндпоинтов
-2. **JWT Token** (`Authorization: Bearer`) - для административных операций
+1. **API Key** (`X-API-Key`) - for public GET endpoints
+2. **JWT Token** (`Authorization: Bearer`) - for administrative operations
 
-## Защищенные эндпоинты
+## Protected Endpoints
 
-| Эндпоинт | Метод | Защита | Назначение |
-|----------|-------|--------|------------|
-| `/auth/login` | POST | - | Получение JWT токена |
-| `/languages` | GET | API Key | Список языков |
-| `/translations` | GET | API Key | Список переводов |
-| `/translation_info` | GET | API Key | Информация о переводе |
-| `/translations/{code}/books` | GET | API Key | Книги перевода |
-| `/chapter_with_alignment` | GET | API Key | Глава с выравниванием |
-| `/excerpt_with_alignment` | GET | API Key | Отрывок с выравниванием |
-| `/audio/{translation}/{voice}/{book}/{chapter}.mp3` | GET | API Key* | Аудиофайлы |
-| `/translations/{code}` | PUT | JWT | Обновить перевод |
-| `/voices/{code}` | PUT | JWT | Обновить голос |
-| `/voices/{code}/anomalies` | GET | JWT | Список аномалий |
-| `/voices/anomalies` | POST | JWT | Создать аномалию |
-| `/voices/anomalies/{code}/status` | PATCH | JWT | Обновить статус |
-| `/voices/manual-fixes` | POST | JWT | Ручная корректировка |
-| `/cache/clear` | POST | JWT | Очистить кеш |
-| `/check_translation` | GET | JWT | Проверка перевода |
-| `/check_voice` | GET | JWT | Проверка озвучки |
+| Endpoint | Method | Protection | Purpose |
+|----------|--------|------------|---------|
+| `/auth/login` | POST | - | Obtain JWT token |
+| `/languages` | GET | API Key | List of languages |
+| `/translations` | GET | API Key | List of translations |
+| `/translation_info` | GET | API Key | Translation information |
+| `/translations/{code}/books` | GET | API Key | Translation books |
+| `/chapter_with_alignment` | GET | API Key | Chapter with alignment |
+| `/excerpt_with_alignment` | GET | API Key | Excerpt with alignment |
+| `/audio/{translation}/{voice}/{book}/{chapter}.mp3` | GET | API Key* | Audio files |
+| `/translations/{code}` | PUT | JWT | Update translation |
+| `/voices/{code}` | PUT | JWT | Update voice |
+| `/voices/{code}/anomalies` | GET | JWT | List of anomalies |
+| `/voices/anomalies` | POST | JWT | Create anomaly |
+| `/voices/anomalies/{code}/status` | PATCH | JWT | Update status |
+| `/voices/manual-fixes` | POST | JWT | Manual correction |
+| `/cache/clear` | POST | JWT | Clear cache |
+| `/check_translation` | GET | JWT | Translation check |
+| `/check_voice` | GET | JWT | Voice check |
 
-**\*** Аудио эндпоинт поддерживает API ключ как в заголовке `X-API-Key`, так и в query параметре `?api_key=...` (для совместимости с HTML `<audio>` элементом)
+**\*** The audio endpoint supports the API key both in the `X-API-Key` header and as a query parameter `?api_key=...` (for compatibility with HTML `<audio>` elements)
 
-## Конфигурация
+## Configuration
 
-Все параметры задаются через переменные окружения (см. `.env.example`):
+All parameters are set via environment variables (see `.env.example`):
 
 ```
 API_KEY=your-api-key-here
@@ -41,42 +41,42 @@ JWT_SECRET_KEY=your-secret-key        # openssl rand -hex 32
 JWT_ALGORITHM=HS256
 JWT_EXPIRE_HOURS=24
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD_HASH=$$2b$$12$$...     # bcrypt хеш ($ экранируется как $$ для docker-compose)
+ADMIN_PASSWORD_HASH=$$2b$$12$$...     # bcrypt hash ($ is escaped as $$ for docker-compose)
 ```
 
-### Генерация хеша пароля
+### Generating a Password Hash
 
 ```bash
 python -c "import bcrypt; print(bcrypt.hashpw(b'your_password', bcrypt.gensalt()).decode('utf-8'))"
 ```
 
-## Использование
+## Usage
 
-### API Key (публичные эндпоинты)
+### API Key (public endpoints)
 
 ```bash
-# Через заголовок (рекомендуется)
+# Via header (recommended)
 curl -H "X-API-Key: your-api-key" \
   http://localhost:8084/api/translations
 
-# Аудио через query параметр (для <audio> элемента)
+# Audio via query parameter (for <audio> elements)
 curl "http://localhost:8084/api/audio/syn/bondarenko/01/01.mp3?api_key=your-api-key"
 ```
 
-### JWT Token (административные эндпоинты)
+### JWT Token (administrative endpoints)
 
 ```bash
-# 1. Получить токен
+# 1. Obtain token
 TOKEN=$(curl -s -X POST http://localhost:8084/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"admin123"}' | jq -r .access_token)
 
-# 2. Использовать токен
+# 2. Use token
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8084/api/voices/1/anomalies
 ```
 
-## Реализация
+## Implementation
 
-- **`app/auth.py`** - функции авторизации и зависимости FastAPI
-- **`app/config.py`** - настройки безопасности (загрузка из переменных окружения)
+- **`app/auth.py`** - authorization functions and FastAPI dependencies
+- **`app/config.py`** - security settings (loaded from environment variables)

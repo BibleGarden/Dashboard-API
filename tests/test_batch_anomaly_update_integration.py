@@ -96,7 +96,7 @@ class TestBatchAnomalyUpdateIntegration:
             'book_number': 2,
             'chapter_number': 3,
             'verse_number': 5,
-            'word': 'слово',
+            'word': 'word',
             'position_in_verse': 2,
             'position_from_end': 3,
             'duration': 2.1,
@@ -107,7 +107,7 @@ class TestBatchAnomalyUpdateIntegration:
             'translation_verse_id': 'verse_2',
             'verse_start_time': 25.5,
             'verse_end_time': 28.3,
-            'verse_text': 'Тестовый стих'
+            'verse_text': 'Test verse'
         }
         
         # Mock cursor.fetchone() calls
@@ -157,7 +157,7 @@ class TestBatchAnomalyUpdateIntegration:
             'book_number': 3,
             'chapter_number': 7,
             'verse_number': 12,
-            'word': 'исправлено',
+            'word': 'corrected',
             'position_in_verse': 1,
             'position_from_end': 1,
             'duration': 1.2,
@@ -168,7 +168,7 @@ class TestBatchAnomalyUpdateIntegration:
             'translation_verse_id': 'verse_3',
             'verse_start_time': 45.0,
             'verse_end_time': 48.0,
-            'verse_text': 'Исправленный стих'
+            'verse_text': 'Corrected verse'
         }
         
         # Mock cursor.fetchone() calls

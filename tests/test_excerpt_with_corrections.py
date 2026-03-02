@@ -20,7 +20,7 @@ class TestExcerptWithCorrections:
         """Test that the SQL query includes proper JOIN with voice_manual_fixes"""
         
         # This test verifies the SQL query structure by checking the source code
-        # После рефакторинга SQL находится в get_chapter_data()
+        # After refactoring, the SQL is in get_chapter_data()
         import inspect
         
         # Get the source code of the get_chapter_data function
@@ -61,7 +61,7 @@ class TestExcerptWithCorrections:
         assert 'v.verse_number' in source
         
         # Verify that the query doesn't have ambiguous column references
-        # (проверяем что используются алиасы таблиц)
+        # (verify that table aliases are used)
         assert 'translation_verses v' in source or 'translation_verses AS v' in source
     
     def test_excerpt_with_alignment_coalesce_logic(self):

@@ -1,5 +1,5 @@
 """
-Тесты для обработки ошибок в аудио модуле
+Tests for error handling in the audio module
 """
 
 import pytest
@@ -11,10 +11,10 @@ from audio import create_range_response, get_voice_link_template, format_audio_u
 
 
 class TestAudioErrorHandling:
-    """Тесты обработки ошибок в аудио модуле"""
+    """Tests for error handling in the audio module"""
 
     def test_create_range_response_file_not_found_without_url(self):
-        """Тест ошибки 404 без корректного URL"""
+        """Test 404 error without a valid URL"""
         non_existent_path = Path("/non/existent/file.mp3")
         
         with pytest.raises(HTTPException) as exc_info:
@@ -30,7 +30,7 @@ class TestAudioErrorHandling:
     @patch('audio.get_voice_link_template')
     @patch('audio.format_audio_url')
     def test_create_range_response_file_not_found_with_url(self, mock_format_url, mock_get_template):
-        """Тест ошибки 404 с корректным URL"""
+        """Test 404 error with a valid URL"""
         non_existent_path = Path("/non/existent/file.mp3")
         mock_get_template.return_value = "https://example.com/{book_zerofill}/{chapter_zerofill}.mp3"
         mock_format_url.return_value = "https://example.com/01/01.mp3"
@@ -55,7 +55,7 @@ class TestAudioErrorHandling:
 
     @patch('audio.create_connection')
     def test_get_voice_link_template_success(self, mock_create_connection):
-        """Тест успешного получения link_template"""
+        """Test successful retrieval of link_template"""
         mock_connection = MagicMock()
         mock_cursor = MagicMock()
         mock_create_connection.return_value = mock_connection
@@ -73,7 +73,7 @@ class TestAudioErrorHandling:
 
     @patch('audio.create_connection')
     def test_get_voice_link_template_not_found(self, mock_create_connection):
-        """Тест случая, когда голос не найден"""
+        """Test case when voice is not found"""
         mock_connection = MagicMock()
         mock_cursor = MagicMock()
         mock_create_connection.return_value = mock_connection
@@ -86,7 +86,7 @@ class TestAudioErrorHandling:
 
     @patch('audio.create_connection')
     def test_get_voice_link_template_database_error(self, mock_create_connection):
-        """Тест обработки ошибки базы данных"""
+        """Test database error handling"""
         mock_create_connection.side_effect = Exception("Database error")
         
         result = get_voice_link_template("syn", "bondarenko")
@@ -95,7 +95,7 @@ class TestAudioErrorHandling:
 
     @patch('audio.create_connection')
     def test_format_audio_url_success(self, mock_create_connection):
-        """Тест успешного форматирования URL"""
+        """Test successful URL formatting"""
         mock_connection = MagicMock()
         mock_cursor = MagicMock()
         mock_create_connection.return_value = mock_connection
@@ -113,13 +113,13 @@ class TestAudioErrorHandling:
         assert result == "https://example.com/01/01.mp3"
 
     def test_format_audio_url_empty_template(self):
-        """Тест с пустым шаблоном"""
+        """Test with an empty template"""
         result = format_audio_url("", "1", "1")
         assert result == ''
 
     @patch('audio.create_connection')
     def test_format_audio_url_book_not_found(self, mock_create_connection):
-        """Тест случая, когда книга не найдена"""
+        """Test case when book is not found"""
         mock_connection = MagicMock()
         mock_cursor = MagicMock()
         mock_create_connection.return_value = mock_connection

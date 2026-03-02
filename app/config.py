@@ -22,7 +22,7 @@ DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = _get_int("DB_PORT", 3306)
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "cep")
+DB_NAME = os.getenv("DB_NAME", "cep_admin")
 
 # Path to MP3 files storage (inside container)
 MP3_FILES_PATH = os.getenv("MP3_FILES_PATH", "audio")

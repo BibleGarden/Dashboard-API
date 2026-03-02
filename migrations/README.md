@@ -1,45 +1,45 @@
 # Database Migrations
 
-Система миграций для Bible API, позволяющая управлять изменениями схемы базы данных.
+Migration system for Bible API that allows managing database schema changes.
 
-## Использование
+## Usage
 
-### Запуск миграций
+### Running Migrations
 ```bash
 python migrate.py migrate
 ```
 
-### Создание новой миграции
+### Creating a New Migration
 ```bash
 python migrate.py create "migration_name"
 ```
 
-### Просмотр статуса миграций
+### Viewing Migration Status
 ```bash
 python migrate.py status
 ```
 
-### Откат миграции (только запись в таблице)
+### Rolling Back a Migration (table record only)
 ```bash
 python migrate.py rollback "migration_file.sql"
 ```
 
-### Пометить миграцию как выполненную (для существующих БД)
+### Marking a Migration as Executed (for existing databases)
 ```bash
 python migrate.py mark-executed "migration_file.sql"
 ```
 
-## Структура
+## Structure
 
-- `migration_manager.py` - основной класс для управления миграциями
-- `migrations/` - папка с файлами миграций
-- `migrate.py` - CLI инструмент для управления миграциями
+- `migration_manager.py` - main class for managing migrations
+- `migrations/` - folder with migration files
+- `migrate.py` - CLI tool for managing migrations
 
-## Формат файлов миграций
+## Migration File Format
 
-Файлы миграций имеют формат: `YYYY_MM_DD_HHMMSS_migration_name.sql`
+Migration files follow the format: `YYYY_MM_DD_HHMMSS_migration_name.sql`
 
-Пример:
+Example:
 ```sql
 -- Migration: create_users_table
 -- Created: 2025-07-23 23:12:32
@@ -54,9 +54,9 @@ CREATE TABLE users (
 CREATE INDEX idx_users_email ON users(email);
 ```
 
-## Таблица миграций
+## Migrations Table
 
-Система автоматически создает таблицу `migrations` для отслеживания выполненных миграций:
+The system automatically creates a `migrations` table for tracking executed migrations:
 
 ```sql
 CREATE TABLE migrations (
@@ -67,17 +67,17 @@ CREATE TABLE migrations (
 );
 ```
 
-## Важные замечания
+## Important Notes
 
-1. Каждое SQL-выражение должно заканчиваться точкой с запятой
-2. Миграции выполняются в алфавитном порядке по имени файла
-3. Откат миграции только удаляет запись из таблицы migrations - схему нужно откатывать вручную
-4. Рекомендуется делать резервную копию базы данных перед выполнением миграций
+1. Each SQL statement must end with a semicolon
+2. Migrations are executed in alphabetical order by file name
+3. Rolling back a migration only removes the record from the migrations table - the schema must be rolled back manually
+4. It is recommended to back up the database before running migrations
 
-## Для существующих баз данных
+## For Existing Databases
 
-Если вы внедряете систему миграций в существующий проект с уже созданной схемой базы данных:
+If you are introducing the migration system into an existing project with an already-created database schema:
 
-1. Создайте первую миграцию с дампом текущей структуры
-2. Пометьте её как выполненную: `python migrate.py mark-executed "migration_file.sql"`
-3. Теперь все новые миграции будут выполняться нормально
+1. Create the first migration with a dump of the current structure
+2. Mark it as executed: `python migrate.py mark-executed "migration_file.sql"`
+3. Now all new migrations will be executed normally

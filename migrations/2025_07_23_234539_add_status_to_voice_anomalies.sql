@@ -3,11 +3,11 @@
 
 -- Add status column to voice_anomalies table
 -- Status values:
--- detected - ошибка выявлена (по умолчанию)
--- confirmed - ошибка подтверждена
--- disproved - ошибка опровергнута, не подтверждена проверкой
--- corrected - выполнена ручная коррекция
--- already_resolved - уже исправлена ранее
+-- detected - anomaly detected (default)
+-- confirmed - anomaly confirmed
+-- disproved - anomaly disproved, not confirmed by review
+-- corrected - manual correction applied
+-- already_resolved - already fixed earlier
 
 ALTER TABLE `voice_anomalies` 
 ADD COLUMN `status` ENUM('detected', 'confirmed', 'disproved', 'corrected', 'already_resolved') 

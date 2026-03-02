@@ -14,8 +14,7 @@ from excerpt import router as excerpt_router
 from excerpt import get_books_info, check_audio_file_exists
 from checks import router as checks_router
 from audio import router as audio_router
-from about import router as about_router
-from version_check import router as version_check_router
+from data import router as data_router
 from auth import (
     Token, LoginRequest, authenticate_user, create_access_token,
     RequireAPIKey, RequireJWT
@@ -53,7 +52,7 @@ def timed_cache(seconds: int = 3600):
 tags_metadata = [
     {
         "name": "Auth",
-        "description": "Авторизация и аутентификация",
+        "description": "Authorization and authentication",
     },
     {
         "name": "Languages",
@@ -76,23 +75,19 @@ tags_metadata = [
         "description": "Streaming & Download mp3",
     },
     {
-        "name": "About",
-        "description": "Информация о проекте",
-    },
-    {
-        "name": "Version",
-        "description": "Проверка версии приложения",
+        "name": "Data",
+        "description": "Data export for public-api",
     },
     {
         "name": "Admin",
-        "description": "Административные операции (требуется JWT токен)",
+        "description": "Administrative operations (JWT token required)",
     },
 ]
 
 app = FastAPI(
     openapi_tags=tags_metadata,
-    title="Bible API",
-    description="API для работы с библией",
+    title="Admin API",
+    description="Admin API for Bible Garden data management",
     version="0.1.0",
     swagger_ui_parameters={
         "deepLinking": True,
@@ -109,8 +104,7 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(excerpt_router)
 api_router.include_router(checks_router)
 api_router.include_router(audio_router)
-api_router.include_router(about_router)
-api_router.include_router(version_check_router)
+api_router.include_router(data_router)
 
 
 @api_router.post('/auth/login', response_model=Token, operation_id="login", tags=["Auth"])

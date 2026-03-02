@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Скрипт для тестирования авторизации Bible API
+Script for testing Bible API authorization
 """
 
 import requests
@@ -13,28 +13,28 @@ USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin123")
 
 def test_public_endpoint_without_key():
-    """Тест: публичный эндпоинт без API ключа должен вернуть 403"""
-    print("\n1. Тест: GET /translations без API ключа")
+    """Test: public endpoint without API key should return 403"""
+    print("\n1. Test: GET /translations without API key")
     response = requests.get(f"{BASE_URL}/translations")
-    print(f"   Статус: {response.status_code}")
-    print(f"   Ответ: {response.json()}")
-    assert response.status_code == 403, "Ожидался статус 403"
+    print(f"   Status: {response.status_code}")
+    print(f"   Response: {response.json()}")
+    assert response.status_code == 403, "Expected status 403"
     assert "Invalid or missing API Key" in response.json()["detail"]
-    print("   ✅ Тест пройден")
+    print("   ✅ Test passed")
 
 def test_public_endpoint_with_key():
-    """Тест: публичный эндпоинт с API ключом должен работать"""
-    print("\n2. Тест: GET /translations с API ключом")
+    """Test: public endpoint with API key should work"""
+    print("\n2. Test: GET /translations with API key")
     headers = {"X-API-Key": API_KEY}
     response = requests.get(f"{BASE_URL}/translations", headers=headers)
-    print(f"   Статус: {response.status_code}")
-    assert response.status_code == 200, "Ожидался статус 200"
+    print(f"   Status: {response.status_code}")
+    assert response.status_code == 200, "Expected status 200"
     data = response.json()
-    print(f"   Получено переводов: {len(data)}")
-    print("   ✅ Тест пройден")
+    print(f"   Translations received: {len(data)}")
+    print("   ✅ Test passed")
 
 def get_admin_token():
-    """Получить JWT токен для использования в других тестах"""
+    """Get JWT token for use in other tests"""
     response = requests.post(
         f"{BASE_URL}/auth/login",
         json={"username": USERNAME, "password": PASSWORD}
@@ -44,82 +44,82 @@ def get_admin_token():
     return None
 
 def test_login():
-    """Тест: получение JWT токена"""
-    print("\n3. Тест: POST /auth/login")
+    """Test: obtaining JWT token"""
+    print("\n3. Test: POST /auth/login")
     response = requests.post(
         f"{BASE_URL}/auth/login",
         json={"username": USERNAME, "password": PASSWORD}
     )
-    print(f"   Статус: {response.status_code}")
-    assert response.status_code == 200, "Ожидался статус 200"
+    print(f"   Status: {response.status_code}")
+    assert response.status_code == 200, "Expected status 200"
     data = response.json()
     assert "access_token" in data
     assert "token_type" in data
     assert data["token_type"] == "bearer"
-    print(f"   Токен получен: {data['access_token'][:50]}...")
-    print(f"   Срок действия: {data['expires_in']} секунд")
-    print("   ✅ Тест пройден")
+    print(f"   Token received: {data['access_token'][:50]}...")
+    print(f"   Expires in: {data['expires_in']} seconds")
+    print("   ✅ Test passed")
 
 def test_login_invalid_credentials():
-    """Тест: логин с неверными учетными данными"""
-    print("\n4. Тест: POST /auth/login с неверным паролем")
+    """Test: login with invalid credentials"""
+    print("\n4. Test: POST /auth/login with wrong password")
     response = requests.post(
         f"{BASE_URL}/auth/login",
         json={"username": USERNAME, "password": "wrong_password"}
     )
-    print(f"   Статус: {response.status_code}")
-    print(f"   Текст ответа: {response.text[:200]}")
+    print(f"   Status: {response.status_code}")
+    print(f"   Response text: {response.text[:200]}")
     if response.status_code == 500:
-        print("   ⚠️  Ошибка 500 - проверьте логи API")
+        print("   ⚠️  Error 500 - check the API logs")
         return
-    print(f"   Ответ: {response.json()}")
-    assert response.status_code == 401, "Ожидался статус 401"
+    print(f"   Response: {response.json()}")
+    assert response.status_code == 401, "Expected status 401"
     assert "Incorrect username or password" in response.json()["detail"]
-    print("   ✅ Тест пройден")
+    print("   ✅ Test passed")
 
 def test_admin_endpoint_without_token():
-    """Тест: административный эндпоинт без токена должен вернуть 401"""
-    print("\n5. Тест: GET /voices/1/anomalies без токена")
+    """Test: admin endpoint without token should return 401"""
+    print("\n5. Test: GET /voices/1/anomalies without token")
     response = requests.get(f"{BASE_URL}/voices/1/anomalies")
-    print(f"   Статус: {response.status_code}")
-    print(f"   Ответ: {response.json()}")
-    assert response.status_code == 401, "Ожидался статус 401"
+    print(f"   Status: {response.status_code}")
+    print(f"   Response: {response.json()}")
+    assert response.status_code == 401, "Expected status 401"
     assert "Missing authentication token" in response.json()["detail"]
-    print("   ✅ Тест пройден")
+    print("   ✅ Test passed")
 
 def test_admin_endpoint_with_invalid_token():
-    """Тест: административный эндпоинт с невалидным токеном должен вернуть 401"""
-    print("\n6. Тест: GET /voices/1/anomalies с невалидным токеном")
+    """Test: admin endpoint with invalid token should return 401"""
+    print("\n6. Test: GET /voices/1/anomalies with invalid token")
     headers = {"Authorization": "Bearer invalid-token-here"}
     response = requests.get(f"{BASE_URL}/voices/1/anomalies", headers=headers)
-    print(f"   Статус: {response.status_code}")
-    print(f"   Ответ: {response.json()}")
-    assert response.status_code == 401, "Ожидался статус 401"
+    print(f"   Status: {response.status_code}")
+    print(f"   Response: {response.json()}")
+    assert response.status_code == 401, "Expected status 401"
     assert "Invalid or expired authentication token" in response.json()["detail"]
-    print("   ✅ Тест пройден")
+    print("   ✅ Test passed")
 
 def test_admin_endpoint_with_token(admin_token):
-    """Тест: административный эндпоинт с валидным токеном должен работать"""
-    print("\n7. Тест: GET /voices/1/anomalies с валидным токеном")
+    """Test: admin endpoint with valid token should work"""
+    print("\n7. Test: GET /voices/1/anomalies with valid token")
     headers = {"Authorization": f"Bearer {admin_token}"}
     response = requests.get(f"{BASE_URL}/voices/1/anomalies", headers=headers)
-    print(f"   Статус: {response.status_code}")
-    
+    print(f"   Status: {response.status_code}")
+
     if response.status_code == 404:
-        print("   ⚠️  Голос с кодом 1 не найден (это нормально, если его нет в БД)")
-        print("   ✅ Тест пройден (авторизация работает)")
+        print("   ⚠️  Voice with code 1 not found (this is normal if it does not exist in the DB)")
+        print("   ✅ Test passed (authorization works)")
     elif response.status_code == 200:
         data = response.json()
-        print(f"   Получено аномалий: {data.get('total_count', 0)}")
-        print("   ✅ Тест пройден")
+        print(f"   Anomalies received: {data.get('total_count', 0)}")
+        print("   ✅ Test passed")
     else:
-        print(f"   ❌ Неожиданный статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
+        print(f"   ❌ Unexpected status: {response.status_code}")
+        print(f"   Response: {response.json()}")
         sys.exit(1)
 
 def test_chapter_with_alignment():
-    """Тест: эндпоинт chapter_with_alignment с API ключом"""
-    print("\n8. Тест: GET /chapter_with_alignment с API ключом")
+    """Test: chapter_with_alignment endpoint with API key"""
+    print("\n8. Test: GET /chapter_with_alignment with API key")
     headers = {"X-API-Key": API_KEY}
     params = {
         "translation": 1,
@@ -131,61 +131,61 @@ def test_chapter_with_alignment():
         headers=headers,
         params=params
     )
-    print(f"   Статус: {response.status_code}")
-    
+    print(f"   Status: {response.status_code}")
+
     if response.status_code == 422:
-        print("   ⚠️  Перевод или книга не найдены (это нормально, если их нет в БД)")
-        print("   ✅ Тест пройден (авторизация работает)")
+        print("   ⚠️  Translation or book not found (this is normal if they do not exist in the DB)")
+        print("   ✅ Test passed (authorization works)")
     elif response.status_code == 200:
         data = response.json()
-        print(f"   Получена глава: {data.get('title', 'N/A')}")
-        print("   ✅ Тест пройден")
+        print(f"   Chapter received: {data.get('title', 'N/A')}")
+        print("   ✅ Test passed")
     else:
-        print(f"   ❌ Неожиданный статус: {response.status_code}")
-        print(f"   Ответ: {response.json()}")
+        print(f"   ❌ Unexpected status: {response.status_code}")
+        print(f"   Response: {response.json()}")
         sys.exit(1)
 
 def main():
     print("=" * 60)
-    print("Тестирование авторизации Bible API")
+    print("Testing Bible API authorization")
     print("=" * 60)
     print(f"URL: {BASE_URL}")
     print(f"API Key: {API_KEY}")
     print(f"Username: {USERNAME}")
     
     try:
-        # Проверяем, что API запущен
+        # Check that the API is running
         try:
             requests.get(BASE_URL, timeout=2)
         except requests.exceptions.ConnectionError:
-            print("\n❌ Ошибка: API не запущен!")
-            print("Запустите API командой: uvicorn app.main:app --reload")
+            print("\n❌ Error: API is not running!")
+            print("Start the API with: uvicorn app.main:app --reload")
             sys.exit(1)
         
-        # Публичные эндпоинты
+        # Public endpoints
         test_public_endpoint_without_key()
         test_public_endpoint_with_key()
         test_chapter_with_alignment()
         
-        # Авторизация
+        # Authorization
         test_login_invalid_credentials()
         test_login()
         token = get_admin_token()
         
-        # Административные эндпоинты
+        # Admin endpoints
         test_admin_endpoint_without_token()
         test_admin_endpoint_with_invalid_token()
         test_admin_endpoint_with_token(token)
         
         print("\n" + "=" * 60)
-        print("✅ Все тесты пройдены успешно!")
+        print("✅ All tests passed successfully!")
         print("=" * 60)
         
     except AssertionError as e:
-        print(f"\n❌ Тест провален: {e}")
+        print(f"\n❌ Test failed: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ Ошибка: {e}")
+        print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

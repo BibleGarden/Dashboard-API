@@ -53,12 +53,12 @@ def get_voice_info(cursor, voice: int, translation: int) -> dict:
 @lru_cache(maxsize=20)  # Cache for translation+voice combinations
 def get_all_existing_audio_chapters(translation_alias: str, voice_alias: str) -> dict:
     """
-    Получает список всех существующих глав для всех книг (с кешированием)
-    
+    Get all existing audio chapters for all books (cached)
+
     Args:
-        translation_alias: Алиас перевода
-        voice_alias: Алиас голоса
-        
+        translation_alias: Translation alias
+        voice_alias: Voice alias
+
     Returns:
         Dict {book_number: set(chapter_numbers)}
     """
@@ -98,15 +98,15 @@ def get_all_existing_audio_chapters(translation_alias: str, voice_alias: str) ->
 @lru_cache(maxsize=100)  # Cache directory scans
 def get_existing_audio_chapters(translation_alias: str, voice_alias: str, book_number: int) -> set:
     """
-    Получает список всех существующих глав для книги (с кешированием)
-    
+    Get all existing audio chapters for a book (cached)
+
     Args:
-        translation_alias: Алиас перевода
-        voice_alias: Алиас голоса
-        book_number: Номер книги
-        
+        translation_alias: Translation alias
+        voice_alias: Voice alias
+        book_number: Book number
+
     Returns:
-        Set номеров глав, для которых есть аудиофайлы
+        Set of chapter numbers that have audio files
     """
     # Use the batch function for better performance
     all_chapters = get_all_existing_audio_chapters(translation_alias, voice_alias)
@@ -116,16 +116,16 @@ def get_existing_audio_chapters(translation_alias: str, voice_alias: str, book_n
 @lru_cache(maxsize=10000)  # Cache up to 10000 file checks
 def check_audio_file_exists(translation_alias: str, voice_alias: str, book_number: int, chapter_number: int) -> bool:
     """
-    Проверяет существование аудиофайла в папке audio (с кешированием)
-    
+    Check if audio file exists in the audio directory (cached)
+
     Args:
-        translation_alias: Алиас перевода (например: syn, rst, bsb)
-        voice_alias: Алиас голоса (например: bondarenko, barry_hays)
-        book_number: Номер книги
-        chapter_number: Номер главы
-        
+        translation_alias: Translation alias (e.g.: syn, rst, bsb)
+        voice_alias: Voice alias (e.g.: bondarenko, barry_hays)
+        book_number: Book number
+        chapter_number: Chapter number
+
     Returns:
-        True если файл существует, False если нет
+        True if file exists, False otherwise
     """
     # Use batch check for better performance
     existing_chapters = get_existing_audio_chapters(translation_alias, voice_alias, book_number)
@@ -168,22 +168,22 @@ def get_book_alias(cursor: int, book_number: str) -> str:
 
 def get_chapter_data(cursor, translation: int, book_info: dict, chapter_number: int, voice: Optional[int] = None, voice_info: Optional[dict] = None, start_verse: Optional[int] = None, end_verse: Optional[int] = None) -> dict:
     """
-    Получает данные главы: стихи, заголовки, примечания, аудио-ссылку
-    
+    Get chapter data: verses, titles, notes, audio link
+
     Args:
-        cursor: Курсор базы данных
-        translation: Код перевода
-        book_info: Информация о книге (должна содержать 'number', 'name', 'alias', etc.)
-        chapter_number: Номер главы
-        voice: Код голоса (опционально)
-        voice_info: Информация о голосе (опционально)
-        start_verse: Начальный стих (опционально, для диапазонов)
-        end_verse: Конечный стих (опционально, для диапазонов)
-    
+        cursor: Database cursor
+        translation: Translation code
+        book_info: Book information (must contain 'number', 'name', 'alias', etc.)
+        chapter_number: Chapter number
+        voice: Voice code (optional)
+        voice_info: Voice information (optional)
+        start_verse: Start verse (optional, for ranges)
+        end_verse: End verse (optional, for ranges)
+
     Returns:
-        dict: Словарь с данными главы
+        dict: Dictionary with chapter data
     """
-    # Формирование SQL-запроса для получения стихов с учетом корректировок
+    # Build SQL query for verses with manual fix overrides
     verses_query = '''
         SELECT 
             v.code, v.verse_number, v.verse_number_join, v.html, v.text, v.start_paragraph,
@@ -214,7 +214,7 @@ def get_chapter_data(cursor, translation: int, book_info: dict, chapter_number: 
         'chapter_number': chapter_number,
     }
     
-    # Добавляем фильтрацию по диапазону стихов, если указано
+    # Add verse range filter if specified
     if start_verse is not None:
         params['start_verse'] = start_verse
         params['end_verse'] = end_verse if end_verse else start_verse
@@ -258,24 +258,24 @@ def get_chapter_data(cursor, translation: int, book_info: dict, chapter_number: 
         )
         verses.append(verse_model)
 
-    # Ссылка на медиафайл
+    # Audio file link
     audio_link = ''
     if voice_info:
-        # Проверяем, существует ли аудиофайл в папке audio
+        # Check if audio file exists in the audio directory
         if check_audio_file_exists(
             voice_info['translation_alias'], 
             voice_info['voice_alias'], 
             book_info['number'], 
             chapter_number
         ):
-            # Если файл существует, формируем ссылку на внутренний эндпоинт
+            # If file exists, build link to internal endpoint
             book_str = str(book_info['number']).zfill(2)
             chapter_str = str(chapter_number).zfill(2)
             audio_link = f"{AUDIO_BASE_URL}/audio/{voice_info['translation_alias']}/{voice_info['voice_alias']}/{book_str}/{chapter_str}.mp3"
 
     codes = ", ".join(str(verse.code) for verse in verses)
     
-    # Заголовки
+    # Titles
     titles_query = '''
         SELECT code, text, before_translation_verse, metadata, reference, subtitle, position_text, position_html
         FROM translation_titles
@@ -299,7 +299,7 @@ def get_chapter_data(cursor, translation: int, book_info: dict, chapter_number: 
         titles.append(title_model)
         title_codes.append(str(title['code']))
 
-    # Примечания для стихов и заголовков
+    # Notes for verses and titles
     notes_query = '''
         SELECT code, note_number, text, translation_verse, translation_title, position_text, position_html
         FROM translation_notes
@@ -352,28 +352,28 @@ def get_book_name(cursor: int, translation: int, book_number: str) -> str:
     return result['name']
 """
 
-# Модель для простого ответа с ошибкой
+# Simple error response model
 class SimpleErrorResponse(BaseModel):
     detail: str
 
 @router.get('/chapter_with_alignment', response_model=ExcerptWithAlignmentModel, operation_id="get_chapter_with_alignment", responses={422: {"model": SimpleErrorResponse}}, tags=["Excerpts"])
 async def get_chapter_with_alignment(translation: int, book_number: int, chapter_number: int, voice: Optional[int] = None, api_key: bool = RequireAPIKey):
     """
-    Получить главу с выравниванием по номеру книги и главы
-    
+    Get chapter with alignment by book and chapter number
+
     Args:
-        translation: Код перевода
-        book_number: Номер книги (1-66)
-        chapter_number: Номер главы
-        voice: Код голоса (опционально)
-    
+        translation: Translation code
+        book_number: Book number (1-66)
+        chapter_number: Chapter number
+        voice: Voice code (optional)
+
     Returns:
-        ExcerptWithAlignmentModel: Данные главы с выравниванием
+        ExcerptWithAlignmentModel: Chapter data with alignment
     """
     connection = create_connection()
     cursor = connection.cursor(dictionary=True)
     try:
-        # Валидация входных параметров
+        # Validate input parameters
         if book_number < 1 or book_number > 66:
             raise HTTPException(
                 status_code=422,
@@ -389,7 +389,7 @@ async def get_chapter_with_alignment(translation: int, book_number: int, chapter
         translation_name = get_translation_name(cursor, translation)
         voice_info = get_voice_info(cursor, voice, translation) if voice else None
 
-        # Получаем информацию о книге по номеру
+        # Get book info by number
         cursor.execute('''
             SELECT tb.code, tb.book_number AS number, tb.name, bb.code1 AS alias, bb.code2, bb.code3, bb.code4, bb.code5, bb.code6, bb.code7, bb.code8, bb.code9,
                    (SELECT max(chapter_number) FROM translation_verses WHERE book_number = tb.book_number) AS chapters_count
@@ -405,14 +405,14 @@ async def get_chapter_with_alignment(translation: int, book_number: int, chapter
                 detail=f"Book {book_number} not found for translation {translation}."
             )
         
-        # Проверяем, что глава существует
+        # Check that the chapter exists
         if chapter_number > book_info['chapters_count']:
             raise HTTPException(
                 status_code=422,
                 detail=f"Chapter {chapter_number} not found. Book {book_number} has only {book_info['chapters_count']} chapters."
             )
 
-        # Получаем данные главы через общую функцию
+        # Get chapter data via shared function
         chapter_data = get_chapter_data(cursor, translation, book_info, chapter_number, voice, voice_info)
 
         part = PartsWithAlignmentModel(
@@ -452,7 +452,7 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
         is_single_chapter = True
         book_name = ''
 
-        # Регулярное выражение для парсинга строки
+        # Regex for parsing the excerpt string
         pattern = r'(?P<book>[0-9a-z]+) (?P<chapter>\d+)(:(?P<start_verse>\d+)(?:-(?P<end_verse>\d+))?)?'
         
         matches = list(re.finditer(pattern, excerpt))
@@ -471,7 +471,7 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
             start_verse = match.group('start_verse')
             end_verse = match.group('end_verse')
 
-            # Получение кода книги на основе alias
+            # Get book code by alias
             books_info_list = get_books_info(cursor, translation, book_alias)
             if not books_info_list:
                 raise HTTPException(
@@ -482,7 +482,7 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
             #book_number = book_info['number'] # get_book_number(cursor, book_alias)
             #book_name = book_info['name'] # get_book_name(cursor, translation, book_number)
 
-            # Обработка диапазонов стихов
+            # Handle verse ranges
             if start_verse is not None:
                 is_single_chapter = False
                 start_verse_int = int(start_verse)
@@ -491,7 +491,7 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
                 start_verse_int = None
                 end_verse_int = None
 
-            # Получаем данные главы через общую функцию
+            # Get chapter data via shared function
             try:
                 chapter_data = get_chapter_data(cursor, translation, book_info, chapter_number, voice, voice_info, start_verse_int, end_verse_int)
                 verses = chapter_data['verses']
@@ -499,7 +499,7 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
                 notes = chapter_data['notes']
                 audio_link = chapter_data['audio_link']
             except HTTPException as e:
-                # Перехватываем и адаптируем сообщения об ошибках для excerpt формата
+                # Catch and adapt error messages for excerpt format
                 if start_verse is None:
                     raise HTTPException(
                         status_code=422, 
@@ -540,9 +540,9 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
         )
     
     except HTTPException as e:
-        raise e  # Позволяем HTTPException пробрасываться дальше с корректным кодом ошибки
+        raise e  # Let HTTPException propagate with the correct status code
     #except Exception as e:
-    #    raise HTTPException(status_code=500, detail="Internal Server Error")  # Для любых непредвиденных ошибок
+    #    raise HTTPException(status_code=500, detail="Internal Server Error")  # For any unexpected errors
     finally:
         cursor.close()
         connection.close()
@@ -572,7 +572,7 @@ def get_prev_excerpt(cursor: any, translation: int, book: BookInfoModel, chapter
     else:
         current_book_number = int(get_book_number(cursor, book['alias']))
         if current_book_number == 1:
-            return '' # это первая книга первой главы
+            return '' # first book, first chapter
         else:
             prev_book_alias = get_book_alias(cursor, current_book_number-1)
             prev_book_info_list = get_books_info(cursor, translation, prev_book_alias)
@@ -580,7 +580,7 @@ def get_prev_excerpt(cursor: any, translation: int, book: BookInfoModel, chapter
                 prev_book_info = prev_book_info_list[0]
                 return "%s %s" % (prev_book_alias, prev_book_info['chapters_count'])
             else:
-                return '' # предыдущая книга не найдена
+                return '' # previous book not found
 
     return ''
 
@@ -590,13 +590,13 @@ def get_next_excerpt(cursor: any, translation: int, book: BookInfoModel, chapter
     else:
         current_book_number = int(get_book_number(cursor, book['alias']))
         if current_book_number == 66:
-            return '' # это последняя книга последней главы
+            return '' # last book, last chapter
         else:
             next_book_alias = get_book_alias(cursor, current_book_number+1)
-            # Проверяем, что следующая книга существует
+            # Check that the next book exists
             if next_book_alias:
                 return "%s 1" % next_book_alias
             else:
-                return '' # следующая книга не найдена
+                return '' # next book not found
 
     return ''

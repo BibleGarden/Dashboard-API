@@ -14,7 +14,7 @@ def check_translation(translation: Optional[int], username: str = RequireJWT):
     connection = create_connection()
     cursor = connection.cursor(dictionary=True)
     try:
-        # проверка пустых стихов
+        # check for empty verses
         sql = '''
             SELECT v.book_number, tb.name AS book_name, chapter_number, count(*) AS empty_verses_count
             FROM translation_verses AS v
@@ -31,7 +31,7 @@ def check_translation(translation: Optional[int], username: str = RequireJWT):
         if result:
             raise HTTPException(status_code=422, detail={"error_description": "Empty verses", "error_list": result})
     
-        # проверка количества стихов по главам
+        # check verse counts per chapter
         sql = '''
 			SELECT count(*) AS cc
 			FROM translation_verses AS tv
@@ -59,7 +59,7 @@ def check_translation(translation: Optional[int], username: str = RequireJWT):
             if result:
                 raise HTTPException(status_code=422, detail={"error_description": "Incorrect verses count in chapter", "error_list": result})
             
-        # проверяем наличие лишних книг и глав
+        # check for extra books and chapters
             
     except HTTPException as e:
         raise e
@@ -73,7 +73,7 @@ def check_voice(voice: Optional[int], username: str = RequireJWT):
     connection = create_connection()
     cursor = connection.cursor(dictionary=True)
     try:
-        # проверка количества стихов
+        # check verse count
         sql = '''
 			SELECT count(*) AS cc
 			FROM voice_alignments
@@ -99,7 +99,7 @@ def check_voice(voice: Optional[int], username: str = RequireJWT):
         if autdio_verses_count != text_verses_count:
             raise HTTPException(status_code=422, detail={"error_description": "Voices count (%s) is not correct (in text %s)" % (autdio_verses_count, text_verses_count)})
         
-        # проверка стихов, где end > begin
+        # check verses where end > begin
         sql = '''
             SELECT 
               va.book_number, tb.name, va.chapter_number, va.verse_number, 
@@ -123,7 +123,7 @@ def check_voice(voice: Optional[int], username: str = RequireJWT):
         if result:
             raise HTTPException(status_code=422, detail={"error_description": "begin >= end", "error_list": result})
 
-        # проверка следующих стихов - должен быть begin больше предыдущего
+        # check next verses — begin must be greater than the previous one
         sql = '''
             SELECT 
               va.book_number, tb.name, va.chapter_number, va.verse_number, tv.text, 

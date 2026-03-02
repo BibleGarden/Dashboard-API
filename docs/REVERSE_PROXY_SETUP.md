@@ -1,29 +1,29 @@
-# Reverse Proxy (опционально)
+# Reverse Proxy (optional)
 
-По умолчанию `bible-api` доступен напрямую на порту `8084` (хост) → `8000` (контейнер).
+By default, `bible-api` is available directly on port `8084` (host) -> `8000` (container).
 
-При необходимости перед API можно поставить Nginx reverse proxy.
+If needed, you can place an Nginx reverse proxy in front of the API.
 
-## Пример конфигурации Nginx
+## Example Nginx Configuration
 
-Файл `deploy/nginx/default.conf` содержит пример конфигурации с:
-- Проксированием `/api/*`, `/docs`, `/openapi.json`, `/redoc` в FastAPI
-- Статическим сайтом на корне домена
-- Поддержкой отдельного API-домена (`api.yourdomain.com`)
+The `deploy/nginx/default.conf` file contains an example configuration with:
+- Proxying `/api/*`, `/docs`, `/openapi.json`, `/redoc` to FastAPI
+- Static site on the domain root
+- Support for a separate API domain (`api.yourdomain.com`)
 
-## Схема с reverse proxy
-
-```
-Клиент → Nginx (:80) → bible-api (:8000)
-```
-
-- Nginx обращается к контейнеру `bible-api` по имени сервиса внутри Docker-сети
-- FastAPI напрямую снаружи недоступен (используется `expose` вместо `ports`)
-
-## Схема без reverse proxy (текущая)
+## Architecture with Reverse Proxy
 
 ```
-Клиент → bible-api (:8084 → :8000)
+Client -> Nginx (:80) -> bible-api (:8000)
 ```
 
-В текущем `docker-compose.yml` используется прямой маппинг портов без Nginx.
+- Nginx connects to the `bible-api` container by service name within the Docker network
+- FastAPI is not directly accessible from outside (uses `expose` instead of `ports`)
+
+## Architecture without Reverse Proxy (current)
+
+```
+Client -> bible-api (:8084 -> :8000)
+```
+
+The current `docker-compose.yml` uses direct port mapping without Nginx.

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Скрипт инициализации тестовой БД cep_test.
+Script for initializing the cep_test test database.
 
-Создаёт БД cep_test, применяет все миграции, загружает seed-данные.
-Запуск внутри контейнера:
+Creates the cep_test database, applies all migrations, loads seed data.
+Run inside the container:
     python tests/setup_test_db.py
 """
 import os
 import sys
 import re
 
-# Пути проекта
+# Project paths
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'app'))
 
-# Устанавливаем DB_NAME до импорта app-модулей (чтобы config.py прочитал правильное значение)
+# Set DB_NAME before importing app modules (so that config.py reads the correct value)
 os.environ["DB_NAME"] = "cep_test"
 
 import mysql.connector
@@ -26,7 +26,7 @@ TEST_DB_NAME = "cep_test"
 
 
 def create_database():
-    """Создаёт (пересоздаёт) тестовую БД"""
+    """Creates (recreates) the test database"""
     print(f"Creating database {TEST_DB_NAME}...")
     conn = mysql.connector.connect(
         host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD
@@ -43,7 +43,7 @@ def create_database():
 
 
 def run_migrations():
-    """Применяет все миграции к тестовой БД"""
+    """Applies all migrations to the test database"""
     print("Running migrations...")
 
     conn = mysql.connector.connect(
@@ -52,10 +52,10 @@ def run_migrations():
     )
     cursor = conn.cursor()
 
-    # Отключаем FK — начальная миграция создаёт таблицы не в порядке FK-зависимостей
+    # Disable FK checks — the initial migration creates tables out of FK dependency order
     cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
 
-    # Таблица учёта миграций
+    # Migration tracking table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS migrations (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -66,7 +66,7 @@ def run_migrations():
     """)
     conn.commit()
 
-    # Собираем файлы миграций
+    # Collect migration files
     migrations_dir = os.path.join(PROJECT_ROOT, 'migrations')
     migration_files = sorted([
         f for f in os.listdir(migrations_dir)
@@ -79,18 +79,18 @@ def run_migrations():
         with open(filepath, 'r', encoding='utf-8') as f:
             sql = f.read()
 
-        # Убираем хардкод имени БД из старых миграций
+        # Remove hardcoded DB name from old migrations
         sql = sql.replace('`bible_pause`.', '')
         sql = sql.replace('`cep`.', '')
 
-        # Production использует utf8mb3, где varchar(10000) помещается в лимит строки.
-        # При utf8mb4 два varchar(10000) дают >65535 байт → заменяем на text.
+        # Production uses utf8mb3, where varchar(10000) fits within the row size limit.
+        # With utf8mb4, two varchar(10000) exceed 65535 bytes, so replace with text.
         sql = sql.replace('varchar(10000)', 'text')
 
-        # Разделяем на отдельные SQL-операторы
+        # Split into individual SQL statements
         statements = [s.strip() for s in sql.split(';') if s.strip()]
         for stmt in statements:
-            # Пропускаем строки, состоящие только из комментариев
+            # Skip lines consisting only of comments
             non_comment = '\n'.join(
                 line for line in stmt.split('\n')
                 if line.strip() and not line.strip().startswith('--')
@@ -100,10 +100,10 @@ def run_migrations():
             try:
                 cursor.execute(stmt)
             except Error as e:
-                # Некритичные ошибки: дубликат индекса, колонка уже существует и т.п.
+                # Non-critical errors: duplicate index, column already exists, etc.
                 print(f"  Warning in {migration_file}: {e}")
 
-        # Записываем миграцию как выполненную
+        # Record the migration as executed
         cursor.execute(
             "INSERT INTO migrations (migration_name) VALUES (%s)",
             (migration_file,)
@@ -111,7 +111,7 @@ def run_migrations():
         conn.commit()
         applied += 1
 
-    # Включаем FK обратно
+    # Re-enable FK checks
     cursor.execute("SET FOREIGN_KEY_CHECKS = 1")
     conn.commit()
 
@@ -121,7 +121,7 @@ def run_migrations():
 
 
 def load_seed_data():
-    """Загружает seed-данные из SQL-файла"""
+    """Loads seed data from the SQL file"""
     print("Loading seed data...")
 
     seed_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'seed_test_data.sql')
