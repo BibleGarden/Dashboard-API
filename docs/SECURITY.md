@@ -69,7 +69,7 @@ curl "http://localhost:8084/api/audio/syn/bondarenko/01/01.mp3?api_key=your-api-
 # 1. Obtain token
 TOKEN=$(curl -s -X POST http://localhost:8084/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq -r .access_token)
+  -d '{"username":"admin","password":"your_password"}' | jq -r .access_token)
 
 # 2. Use token
 curl -H "Authorization: Bearer $TOKEN" \

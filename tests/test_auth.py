@@ -8,9 +8,14 @@ import sys
 import os
 
 BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:8000/api")
-API_KEY = os.getenv("API_KEY", "bible-api-key-2024")
+API_KEY = os.getenv("API_KEY")
 USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin123")
+PASSWORD = os.getenv("TEST_ADMIN_PASSWORD")
+
+if not API_KEY:
+    raise RuntimeError("API_KEY env var is required to run tests")
+if not PASSWORD:
+    raise RuntimeError("TEST_ADMIN_PASSWORD env var is required to run tests")
 
 def test_public_endpoint_without_key():
     """Test: public endpoint without API key should return 403"""

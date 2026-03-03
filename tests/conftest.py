@@ -16,9 +16,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'a
 import pytest
 from fastapi.testclient import TestClient
 
-API_KEY = os.getenv("API_KEY", "bible-api-key-2024")
+API_KEY = os.getenv("API_KEY")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD")
+
+if not API_KEY:
+    raise RuntimeError("API_KEY env var is required to run tests")
+if not ADMIN_PASSWORD:
+    raise RuntimeError("TEST_ADMIN_PASSWORD env var is required to run tests")
 
 @pytest.fixture(scope="session")
 def api_key():
