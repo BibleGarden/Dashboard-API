@@ -38,6 +38,9 @@ JWT_SECRET_KEY = _require("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_HOURS = _get_int("JWT_EXPIRE_HOURS", 24)
 
+# Public API database name (for cross-DB stats queries)
+PUBLIC_DB_NAME = os.getenv("PUBLIC_DB_NAME", "cep_public")
+
 # Administrator credentials
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "")
