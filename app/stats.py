@@ -14,7 +14,7 @@ def get_stats_summary(days: int = Query(30, ge=1, le=365), username: str = Requi
     try:
         db = PUBLIC_DB_NAME
 
-        # Totals for the period
+        # Totals for the period (exclude _total_ synthetic rows)
         cursor.execute(f"""
             SELECT
                 COALESCE(SUM(request_count), 0)                   AS total_requests,
@@ -22,19 +22,11 @@ def get_stats_summary(days: int = Query(30, ge=1, le=365), username: str = Requi
                 COALESCE(ROUND(AVG(avg_response_time_ms)), 0)     AS avg_response_time_ms
             FROM {db}.api_request_daily_stats
             WHERE date >= CURDATE() - INTERVAL %s DAY
+              AND endpoint != '_total_'
         """, (days,))
         totals = cursor.fetchone()
 
-        # Unique IPs for the period (approximate — sum of daily uniques)
-        cursor.execute(f"""
-            SELECT COUNT(DISTINCT date, endpoint) AS data_points,
-                   COALESCE(SUM(unique_ips), 0)   AS total_unique_ips_approx
-            FROM {db}.api_request_daily_stats
-            WHERE date >= CURDATE() - INTERVAL %s DAY
-        """, (days,))
-        ips_row = cursor.fetchone()
-
-        # Try to get more accurate unique IPs from raw table (last 14 days max)
+        # Unique IPs from raw table (last 14 days max)
         cursor.execute(f"""
             SELECT COUNT(DISTINCT client_ip) AS unique_ips
             FROM {db}.api_requests
@@ -42,15 +34,16 @@ def get_stats_summary(days: int = Query(30, ge=1, le=365), username: str = Requi
         """, (days,))
         raw_ips = cursor.fetchone()
 
-        # Daily breakdown (aggregated + today's live data)
+        # Daily breakdown: use _total_ rows from aggregated stats + today's live data
         cursor.execute(f"""
-            SELECT date, SUM(requests) AS requests, SUM(unique_ips) AS unique_ips,
-                   ROUND(AVG(avg_response_time_ms)) AS avg_response_time_ms, SUM(errors) AS errors
+            SELECT date, requests, unique_ips,
+                   avg_response_time_ms, errors
             FROM (
                 SELECT date, request_count AS requests, unique_ips,
                        avg_response_time_ms, error_count AS errors
                 FROM {db}.api_request_daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
+                  AND endpoint = '_total_'
                 UNION ALL
                 SELECT CURDATE() AS date, COUNT(*) AS requests,
                        COUNT(DISTINCT client_ip) AS unique_ips,
@@ -60,7 +53,6 @@ def get_stats_summary(days: int = Query(30, ge=1, le=365), username: str = Requi
                 WHERE DATE(created_at) = CURDATE()
                 HAVING requests > 0
             ) combined
-            GROUP BY date
             ORDER BY date
         """, (days,))
         daily = cursor.fetchall()
@@ -74,6 +66,7 @@ def get_stats_summary(days: int = Query(30, ge=1, le=365), username: str = Requi
                        avg_response_time_ms, error_count AS errors
                 FROM {db}.api_request_daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
+                  AND endpoint != '_total_'
                 UNION ALL
                 SELECT endpoint, COUNT(*) AS requests,
                        COUNT(DISTINCT client_ip) AS unique_ips,
