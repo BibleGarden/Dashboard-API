@@ -3,7 +3,7 @@ services:
     container_name: admin-api
     build: .
     ports:
-      - "9085:8000"
+      - "8085:8000"
     env_file:
       - .env
     volumes:
