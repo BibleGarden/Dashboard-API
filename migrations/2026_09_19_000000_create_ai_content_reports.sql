@@ -2,9 +2,7 @@
 -- The table belongs to the live public service data and is never populated by
 -- the cep_admin -> cep_public content import.
 
-USE cep_public;
-
-CREATE TABLE IF NOT EXISTS ai_content_reports (
+CREATE TABLE IF NOT EXISTS cep_public.ai_content_reports (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     content_type ENUM('question', 'scripture') NOT NULL,
     content_text TEXT NOT NULL,
