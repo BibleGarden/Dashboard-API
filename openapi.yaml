@@ -597,6 +597,12 @@ paths:
         schema:
           title: Before Id
           type: integer
+      - name: status
+        in: query
+        required: false
+        schema:
+          title: Status
+          type: string
       responses:
         '200':
           description: Successful Response
@@ -604,6 +610,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ContentReportsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/content-reports/{report_id}/status:
+    patch:
+      tags:
+      - Content reports
+      summary: Update Content Report Status
+      operationId: update_content_report_status
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: report_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Report Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentReportStatusUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentReportStatusResponse'
         '422':
           description: Validation Error
           content:
@@ -1088,6 +1128,14 @@ components:
           - en
           - uk
           title: Language
+        status:
+          type: string
+          enum:
+          - unreviewed
+          - not_significant
+          - needs_investigation
+          - action_taken
+          title: Status
         created_at:
           type: string
           format: date-time
@@ -1100,8 +1148,41 @@ components:
       - content_text
       - user_comment
       - language
+      - status
       - created_at
       title: ContentReportItem
+    ContentReportStatusResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        status:
+          type: string
+          enum:
+          - unreviewed
+          - not_significant
+          - needs_investigation
+          - action_taken
+          title: Status
+      type: object
+      required:
+      - id
+      - status
+      title: ContentReportStatusResponse
+    ContentReportStatusUpdate:
+      properties:
+        status:
+          type: string
+          enum:
+          - unreviewed
+          - not_significant
+          - needs_investigation
+          - action_taken
+          title: Status
+      type: object
+      required:
+      - status
+      title: ContentReportStatusUpdate
     ContentReportsResponse:
       properties:
         items:

@@ -8,8 +8,13 @@ from auth import RequireJWT
 from config import PUBLIC_DB_NAME
 from database import create_connection
 
-
 router = APIRouter(prefix="/content-reports", tags=["Content reports"])
+ContentReportStatus = Literal[
+    "unreviewed",
+    "not_significant",
+    "needs_investigation",
+    "action_taken",
+]
 
 
 class ContentReportItem(BaseModel):
@@ -18,6 +23,7 @@ class ContentReportItem(BaseModel):
     content_text: str
     user_comment: Optional[str]
     language: Literal["ru", "en", "uk"]
+    status: ContentReportStatus
     created_at: datetime = Field(
         description="Report creation time in the database's Europe/Moscow timezone"
     )
@@ -26,6 +32,15 @@ class ContentReportItem(BaseModel):
 class ContentReportsResponse(BaseModel):
     items: list[ContentReportItem]
     count: int
+
+
+class ContentReportStatusUpdate(BaseModel):
+    status: ContentReportStatus
+
+
+class ContentReportStatusResponse(BaseModel):
+    id: int
+    status: ContentReportStatus
 
 
 @router.get(
@@ -37,6 +52,7 @@ def get_content_reports(
     limit: int = Query(50, ge=1, le=100),
     after_id: Optional[int] = Query(None, ge=0),
     before_id: Optional[int] = Query(None, ge=1),
+    status: Optional[ContentReportStatus] = Query(None),
     username: str = RequireJWT,
 ):
     if after_id is not None and before_id is not None:
@@ -47,27 +63,35 @@ def get_content_reports(
 
     connection = create_connection()
     if connection is None:
-        raise HTTPException(status_code=500, detail="Content report storage is unavailable")
+        raise HTTPException(
+            status_code=500, detail="Content report storage is unavailable"
+        )
 
     cursor = connection.cursor(dictionary=True)
     try:
         db = PUBLIC_DB_NAME
-        where = ""
-        params: tuple[int, ...] = ()
+        conditions: list[str] = []
+        params: list[object] = []
         order = "DESC"
 
+        if status is not None:
+            conditions.append("status = %s")
+            params.append(status)
+
         if after_id is not None:
-            where = "WHERE id > %s"
-            params = (after_id,)
+            conditions.append("id > %s")
+            params.append(after_id)
             order = "ASC"
         elif before_id is not None:
-            where = "WHERE id < %s"
-            params = (before_id,)
+            conditions.append("id < %s")
+            params.append(before_id)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         cursor.execute(
             f"""
             SELECT id, content_type, content_text, user_comment, language,
-                   created_at
+                   status, created_at
             FROM {db}.ai_content_reports
             {where}
             ORDER BY id {order}
@@ -83,6 +107,51 @@ def get_content_reports(
         raise HTTPException(
             status_code=500,
             detail="Failed to load content reports",
+        ) from None
+    finally:
+        cursor.close()
+        connection.close()
+
+
+@router.patch(
+    "/{report_id}/status",
+    response_model=ContentReportStatusResponse,
+    operation_id="update_content_report_status",
+)
+def update_content_report_status(
+    report_id: int,
+    update: ContentReportStatusUpdate,
+    username: str = RequireJWT,
+):
+    connection = create_connection()
+    if connection is None:
+        raise HTTPException(
+            status_code=500, detail="Content report storage is unavailable"
+        )
+
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            f"""
+            UPDATE {PUBLIC_DB_NAME}.ai_content_reports
+            SET status = %s
+            WHERE id = %s
+            """,
+            (update.status, report_id),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Content report not found")
+
+        connection.commit()
+        return ContentReportStatusResponse(id=report_id, status=update.status)
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception:
+        connection.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update content report status",
         ) from None
     finally:
         cursor.close()
