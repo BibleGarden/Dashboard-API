@@ -105,6 +105,20 @@ XOR is commutative, so row order and the AUTO_INCREMENT `code` (which a rebuild 
 - **`models.py`** — Pydantic response/request models.
 - **`database.py`** — MySQL connection factory via `create_connection()`. Returns a new connection each call; callers must close it.
 - **`config.py`** — Environment variable loading. `API_KEY` and `JWT_SECRET_KEY` are required (will raise on startup if missing).
+- **`stats.py`** — JWT-protected API traffic analytics. `GET /api/stats/summary?days=N`
+  uses exactly `N` calendar dates: current `[CURDATE()-(N-1), CURDATE()+1)`
+  and previous `[CURDATE()-(2N-1), CURDATE()-(N-1))`. Historical dates come
+  from `api_request_daily_stats`; today comes from raw `api_requests`, so the
+  daily aggregate for today is deliberately excluded. Response-time averages
+  in totals, previous totals, groups and top endpoints are weighted by request
+  count. Current unique IPs cover the available raw portion (at most 14 calendar
+  dates); `previous_totals.unique_ips` is `null` unless the complete previous
+  interval is inside that retention (`2 * N <= 14`). Traffic groups are
+  `/api/ai/*` → `ai`, other `/api/*` → `scripture`, and everything else →
+  `other`. Optional `top_group=scripture|ai|other` and `top_endpoint=<substring>`
+  filter only `top_endpoints`, before its ordering and limit; all other summary
+  blocks remain unfiltered. `GET /api/stats/recent` supports endpoint substring,
+  status class/code, HTTP method and client-IP substring filters.
 - **`checks.py`** — DB integrity check endpoints (verse counts, voice alignment validation).
 
 ### Key Patterns

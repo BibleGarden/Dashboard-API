@@ -525,12 +525,30 @@ paths:
           minimum: 1
           default: 30
           title: Days
+      - name: top_group
+        in: query
+        required: false
+        schema:
+          title: Top Group
+          enum:
+          - scripture
+          - ai
+          - other
+          type: string
+      - name: top_endpoint
+        in: query
+        required: false
+        schema:
+          title: Top Endpoint
+          type: string
+          maxLength: 255
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/StatsSummaryResponseModel'
         '422':
           description: Validation Error
           content:
@@ -555,12 +573,41 @@ paths:
           minimum: 1
           default: 50
           title: Limit
+      - name: endpoint
+        in: query
+        required: false
+        schema:
+          title: Endpoint
+          type: string
+          maxLength: 255
+      - name: status
+        in: query
+        required: false
+        schema:
+          title: Status
+          type: string
+          pattern: ^(?:[1-5][0-9]{2}|[1-5][xX]{2})$
+      - name: method
+        in: query
+        required: false
+        schema:
+          title: Method
+          type: string
+          maxLength: 10
+      - name: client_ip
+        in: query
+        required: false
+        schema:
+          title: Client Ip
+          type: string
+          maxLength: 45
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/RecentRequestsResponseModel'
         '422':
           description: Validation Error
           content:
@@ -591,17 +638,24 @@ paths:
         schema:
           title: After Id
           type: integer
+          minimum: 0
       - name: before_id
         in: query
         required: false
         schema:
           title: Before Id
           type: integer
+          minimum: 1
       - name: status
         in: query
         required: false
         schema:
           title: Status
+          enum:
+          - unreviewed
+          - not_significant
+          - needs_investigation
+          - action_taken
           type: string
       responses:
         '200':
@@ -1330,6 +1384,61 @@ components:
       - notes
       - titles
       title: PartsWithAlignmentModel
+    RecentRequestRowModel:
+      properties:
+        id:
+          type: integer
+          title: Id
+        endpoint:
+          type: string
+          title: Endpoint
+        method:
+          type: string
+          title: Method
+        status_code:
+          type: integer
+          title: Status Code
+        response_time_ms:
+          type: integer
+          title: Response Time Ms
+        client_ip:
+          type: string
+          title: Client Ip
+        user_agent:
+          title: User Agent
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - endpoint
+      - method
+      - status_code
+      - response_time_ms
+      - client_ip
+      - user_agent
+      - created_at
+      title: RecentRequestRowModel
+    RecentRequestsResponseModel:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/RecentRequestRowModel'
+          type: array
+          title: Items
+        count:
+          type: integer
+          title: Count
+      type: object
+      required:
+      - items
+      - count
+      title: RecentRequestsResponseModel
     SimpleErrorResponse:
       properties:
         detail:
@@ -1339,6 +1448,241 @@ components:
       required:
       - detail
       title: SimpleErrorResponse
+    StatsDailyGroupRowModel:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        grp:
+          type: string
+          enum:
+          - scripture
+          - ai
+          - other
+          title: Grp
+        requests:
+          type: integer
+          title: Requests
+      type: object
+      required:
+      - date
+      - grp
+      - requests
+      title: StatsDailyGroupRowModel
+    StatsDailyRowModel:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        requests:
+          type: integer
+          title: Requests
+        unique_ips:
+          type: integer
+          title: Unique Ips
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        errors:
+          type: integer
+          title: Errors
+      type: object
+      required:
+      - date
+      - requests
+      - unique_ips
+      - avg_response_time_ms
+      - errors
+      title: StatsDailyRowModel
+    StatsEndpointRowModel:
+      properties:
+        endpoint:
+          type: string
+          title: Endpoint
+        requests:
+          type: integer
+          title: Requests
+        unique_ips:
+          type: integer
+          title: Unique Ips
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        errors:
+          type: integer
+          title: Errors
+      type: object
+      required:
+      - endpoint
+      - requests
+      - unique_ips
+      - avg_response_time_ms
+      - errors
+      title: StatsEndpointRowModel
+    StatsGroupMetricsModel:
+      properties:
+        requests:
+          type: integer
+          title: Requests
+        errors:
+          type: integer
+          title: Errors
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+      type: object
+      required:
+      - requests
+      - errors
+      - avg_response_time_ms
+      title: StatsGroupMetricsModel
+    StatsGroupsModel:
+      properties:
+        scripture:
+          $ref: '#/components/schemas/StatsGroupMetricsModel'
+        ai:
+          $ref: '#/components/schemas/StatsGroupMetricsModel'
+        other:
+          $ref: '#/components/schemas/StatsGroupMetricsModel'
+      type: object
+      required:
+      - scripture
+      - ai
+      - other
+      title: StatsGroupsModel
+    StatsPreviousTotalsModel:
+      properties:
+        total_requests:
+          type: integer
+          title: Total Requests
+        total_errors:
+          type: integer
+          title: Total Errors
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        unique_ips:
+          title: Unique Ips
+          type:
+          - integer
+          - 'null'
+      type: object
+      required:
+      - total_requests
+      - total_errors
+      - avg_response_time_ms
+      - unique_ips
+      title: StatsPreviousTotalsModel
+    StatsSlowEndpointRowModel:
+      properties:
+        endpoint:
+          type: string
+          title: Endpoint
+        requests:
+          type: integer
+          title: Requests
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        max_response_time_ms:
+          type: integer
+          title: Max Response Time Ms
+      type: object
+      required:
+      - endpoint
+      - requests
+      - avg_response_time_ms
+      - max_response_time_ms
+      title: StatsSlowEndpointRowModel
+    StatsSummaryResponseModel:
+      properties:
+        period_days:
+          type: integer
+          title: Period Days
+        totals:
+          $ref: '#/components/schemas/StatsTotalsModel'
+        previous_totals:
+          $ref: '#/components/schemas/StatsPreviousTotalsModel'
+        today:
+          $ref: '#/components/schemas/StatsTodayModel'
+        groups:
+          $ref: '#/components/schemas/StatsGroupsModel'
+        daily:
+          items:
+            $ref: '#/components/schemas/StatsDailyRowModel'
+          type: array
+          title: Daily
+        daily_groups:
+          items:
+            $ref: '#/components/schemas/StatsDailyGroupRowModel'
+          type: array
+          title: Daily Groups
+        top_endpoints:
+          items:
+            $ref: '#/components/schemas/StatsEndpointRowModel'
+          type: array
+          title: Top Endpoints
+        slow_endpoints:
+          items:
+            $ref: '#/components/schemas/StatsSlowEndpointRowModel'
+          type: array
+          title: Slow Endpoints
+      type: object
+      required:
+      - period_days
+      - totals
+      - previous_totals
+      - today
+      - groups
+      - daily
+      - daily_groups
+      - top_endpoints
+      - slow_endpoints
+      title: StatsSummaryResponseModel
+    StatsTodayModel:
+      properties:
+        requests:
+          type: integer
+          title: Requests
+        unique_ips:
+          type: integer
+          title: Unique Ips
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        errors:
+          type: integer
+          title: Errors
+      type: object
+      required:
+      - requests
+      - unique_ips
+      - avg_response_time_ms
+      - errors
+      title: StatsTodayModel
+    StatsTotalsModel:
+      properties:
+        total_requests:
+          type: integer
+          title: Total Requests
+        total_errors:
+          type: integer
+          title: Total Errors
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        unique_ips:
+          type: integer
+          title: Unique Ips
+      type: object
+      required:
+      - total_requests
+      - total_errors
+      - avg_response_time_ms
+      - unique_ips
+      title: StatsTotalsModel
     TitleModel:
       properties:
         code:
@@ -1690,6 +2034,7 @@ components:
         updated_at:
           title: Updated At
           type: string
+          format: date-time
       type: object
       required:
       - code

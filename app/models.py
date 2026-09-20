@@ -2,7 +2,7 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from enum import Enum
-from datetime import datetime
+from datetime import date, datetime
 
 # Languages & Translations
 
@@ -288,3 +288,97 @@ class VersionCheckModel(BaseModel):
     store_url: str
     message: Optional[LocalizedText] = None
 
+
+# API Statistics
+
+class StatsTotalsModel(BaseModel):
+    total_requests: int
+    total_errors: int
+    avg_response_time_ms: int
+    unique_ips: int
+
+
+class StatsPreviousTotalsModel(StatsTotalsModel):
+    unique_ips: Optional[int] = Field(
+        ...,
+        json_schema_extra={"x-preserve-nullability": True},
+    )
+
+
+class StatsTodayModel(BaseModel):
+    requests: int
+    unique_ips: int
+    avg_response_time_ms: int
+    errors: int
+
+
+class StatsGroupMetricsModel(BaseModel):
+    requests: int
+    errors: int
+    avg_response_time_ms: int
+
+
+class StatsGroupsModel(BaseModel):
+    scripture: StatsGroupMetricsModel
+    ai: StatsGroupMetricsModel
+    other: StatsGroupMetricsModel
+
+
+class StatsDailyRowModel(BaseModel):
+    date: date
+    requests: int
+    unique_ips: int
+    avg_response_time_ms: int
+    errors: int
+
+
+class StatsDailyGroupRowModel(BaseModel):
+    date: date
+    grp: Literal["scripture", "ai", "other"]
+    requests: int
+
+
+class StatsEndpointRowModel(BaseModel):
+    endpoint: str
+    requests: int
+    unique_ips: int
+    avg_response_time_ms: int
+    errors: int
+
+
+class StatsSlowEndpointRowModel(BaseModel):
+    endpoint: str
+    requests: int
+    avg_response_time_ms: int
+    max_response_time_ms: int
+
+
+class StatsSummaryResponseModel(BaseModel):
+    period_days: int
+    totals: StatsTotalsModel
+    previous_totals: StatsPreviousTotalsModel
+    today: StatsTodayModel
+    groups: StatsGroupsModel
+    daily: list[StatsDailyRowModel]
+    daily_groups: list[StatsDailyGroupRowModel]
+    top_endpoints: list[StatsEndpointRowModel]
+    slow_endpoints: list[StatsSlowEndpointRowModel]
+
+
+class RecentRequestRowModel(BaseModel):
+    id: int
+    endpoint: str
+    method: str
+    status_code: int
+    response_time_ms: int
+    client_ip: str
+    user_agent: Optional[str] = Field(
+        ...,
+        json_schema_extra={"x-preserve-nullability": True},
+    )
+    created_at: datetime
+
+
+class RecentRequestsResponseModel(BaseModel):
+    items: list[RecentRequestRowModel]
+    count: int

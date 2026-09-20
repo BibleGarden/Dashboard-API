@@ -10,30 +10,43 @@ parser.add_argument("app",       help='App import string. Eg. "main:app"', defau
 parser.add_argument("--app-dir", help="Directory containing the app", default=None)
 parser.add_argument("--out",     help="Output file ending in .json or .yaml", default="openapi.yaml")
 
-def replace_anyof_with_string_type(data):
+def replace_nullable_anyof(data):
     if isinstance(data, dict):
         for key, value in data.items():
             if isinstance(value, dict):
-                # Check for anyOf construct: [{type: X}, {type: null}] -> {type: X}
+                # FastAPI emits nullable scalars as anyOf. Swift OpenAPI
+                # Generator handles that shape less predictably, so normalize
+                # it while retaining all validation keywords. Response fields
+                # that genuinely return null opt into preserving nullability.
                 if 'anyOf' in value and isinstance(value['anyOf'], list):
-                    types = {v.get('type') for v in value['anyOf'] if isinstance(v, dict)}
-                    non_null = types - {'null'}
-                    if len(non_null) == 1 and 'null' in types:
-                        actual_type = non_null.pop()
+                    preserve_nullability = value.pop(
+                        'x-preserve-nullability', False
+                    )
+                    schemas = [v for v in value['anyOf'] if isinstance(v, dict)]
+                    null_schemas = [v for v in schemas if v.get('type') == 'null']
+                    non_null_schemas = [v for v in schemas if v.get('type') != 'null']
+                    if len(non_null_schemas) == 1 and null_schemas:
+                        actual_schema = non_null_schemas[0]
                         value.pop('anyOf')
-                        value['type'] = actual_type
+                        value.update(actual_schema)
+                        if (
+                            preserve_nullability
+                            and isinstance(actual_schema.get('type'), str)
+                        ):
+                            value['type'] = [actual_schema['type'], 'null']
+                        replace_nullable_anyof(value)
                     else:
-                        replace_anyof_with_string_type(value)
+                        replace_nullable_anyof(value)
                 else:
                     # Recursively traverse nested dictionaries
-                    replace_anyof_with_string_type(value)
+                    replace_nullable_anyof(value)
             elif isinstance(value, list):
                 # Recursively traverse lists
                 for item in value:
-                    replace_anyof_with_string_type(item)
+                    replace_nullable_anyof(item)
     elif isinstance(data, list):
         for item in data:
-            replace_anyof_with_string_type(item)
+            replace_nullable_anyof(item)
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -48,7 +61,7 @@ if __name__ == "__main__":
     version = openapi.get("openapi", "unknown version")
 
     # hook to solve the issue https://github.com/apple/swift-openapi-generator/issues/513#issuecomment-1911980259
-    replace_anyof_with_string_type(openapi)
+    replace_nullable_anyof(openapi)
 
     print(f"writing openapi spec v{version}")
     with open(args.out, "w") as f:
