@@ -16,6 +16,7 @@ from checks import router as checks_router
 from audio import router as audio_router
 from data import router as data_router
 from stats import router as stats_router
+from content_reports import router as content_reports_router
 from auth import (
     Token, LoginRequest, authenticate_user, create_access_token,
     RequireAPIKey, RequireJWT
@@ -84,6 +85,10 @@ tags_metadata = [
         "description": "API usage statistics from Bible-API",
     },
     {
+        "name": "Content reports",
+        "description": "Reports about AI-generated content from Lampada",
+    },
+    {
         "name": "Admin",
         "description": "Administrative operations (JWT token required)",
     },
@@ -111,6 +116,7 @@ api_router.include_router(checks_router)
 api_router.include_router(audio_router)
 api_router.include_router(data_router)
 api_router.include_router(stats_router)
+api_router.include_router(content_reports_router)
 
 
 @api_router.post('/auth/login', response_model=Token, operation_id="login", tags=["Auth"])
