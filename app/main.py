@@ -672,7 +672,8 @@ def get_voice_anomalies(voice_code: int, page: int = 1, limit: int = 50, anomaly
                    tv.text AS verse_text, va.updated_at
             FROM voice_anomalies AS va
             LEFT JOIN translation_verses tv ON (
-                tv.code = va.translation_verse_id
+                tv.translation = va.translation AND tv.book_number = va.book_number AND
+                tv.chapter_number = va.chapter_number AND tv.verse_number = va.verse_number
             )
             {where_clause}
             {order_by}
@@ -702,7 +703,7 @@ def create_voice_anomaly(anomaly_data: VoiceAnomalyCreateModel, username: str = 
     cursor = connection.cursor(dictionary=True)
     try:
         # Validate that voice exists
-        cursor.execute("SELECT code FROM voices WHERE code = %s", (anomaly_data.voice,))
+        cursor.execute("SELECT code, translation FROM voices WHERE code = %s", (anomaly_data.voice,))
         voice = cursor.fetchone()
         if not voice:
             raise HTTPException(status_code=404, detail=f"Voice {anomaly_data.voice} not found")
@@ -712,11 +713,14 @@ def create_voice_anomaly(anomaly_data: VoiceAnomalyCreateModel, username: str = 
         translation = cursor.fetchone()
         if not translation:
             raise HTTPException(status_code=404, detail=f"Translation {anomaly_data.translation} not found")
+
+        if voice['translation'] != anomaly_data.translation:
+            raise HTTPException(status_code=422, detail="Voice and anomaly translation must match")
         
-        # Get translation_verse_id
+        # Validate that the verse exists at these coordinates.
         cursor.execute(
             """
-            SELECT tv.code FROM translation_verses tv
+            SELECT 1 AS verse_exists FROM translation_verses tv
             WHERE tv.translation = %s AND tv.book_number = %s AND tv.chapter_number = %s AND tv.verse_number = %s
             """,
             (anomaly_data.translation, anomaly_data.book_number, anomaly_data.chapter_number, anomaly_data.verse_number)
@@ -728,19 +732,17 @@ def create_voice_anomaly(anomaly_data: VoiceAnomalyCreateModel, username: str = 
                 detail=f"Verse not found: translation {anomaly_data.translation}, book {anomaly_data.book_number}, chapter {anomaly_data.chapter_number}, verse {anomaly_data.verse_number}"
             )
         
-        translation_verse_id = verse['code']
-        
         # Insert new anomaly
         cursor.execute(
             """
             INSERT INTO voice_anomalies 
-            (voice, translation, book_number, chapter_number, verse_number, translation_verse_id,
+            (voice, translation, book_number, chapter_number, verse_number,
              word, position_in_verse, position_from_end, duration, speed, ratio, anomaly_type, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 anomaly_data.voice, anomaly_data.translation, anomaly_data.book_number,
-                anomaly_data.chapter_number, anomaly_data.verse_number, translation_verse_id,
+                anomaly_data.chapter_number, anomaly_data.verse_number,
                 anomaly_data.word, anomaly_data.position_in_verse, anomaly_data.position_from_end,
                 anomaly_data.duration, anomaly_data.speed, anomaly_data.ratio,
                 anomaly_data.anomaly_type, anomaly_data.status.value
@@ -768,7 +770,8 @@ def create_voice_anomaly(anomaly_data: VoiceAnomalyCreateModel, username: str = 
                 al.verse_number = va.verse_number
             )
             LEFT JOIN translation_verses tv ON (
-                tv.code = va.translation_verse_id
+                tv.translation = va.translation AND tv.book_number = va.book_number AND
+                tv.chapter_number = va.chapter_number AND tv.verse_number = va.verse_number
             )
             WHERE va.code = %s
             """,
@@ -803,7 +806,6 @@ def update_anomaly_status(anomaly_code: int, update_data: AnomalyStatusUpdateMod
             SELECT va.code, va.voice, va.translation, va.book_number, va.chapter_number, 
                    va.verse_number, va.word, va.position_in_verse, va.position_from_end,
                    va.duration, va.speed, va.ratio, va.anomaly_type, va.status,
-                   va.translation_verse_id,
                    al.begin AS verse_start_time, al.end AS verse_end_time,
                    tv.text AS verse_text
             FROM voice_anomalies AS va
@@ -814,7 +816,8 @@ def update_anomaly_status(anomaly_code: int, update_data: AnomalyStatusUpdateMod
                 al.verse_number = va.verse_number
             )
             LEFT JOIN translation_verses tv ON (
-                tv.code = va.translation_verse_id
+                tv.translation = va.translation AND tv.book_number = va.book_number AND
+                tv.chapter_number = va.chapter_number AND tv.verse_number = va.verse_number
             )
             WHERE va.code = %s
             """,
@@ -946,7 +949,8 @@ def update_anomaly_status(anomaly_code: int, update_data: AnomalyStatusUpdateMod
                 al.verse_number = va.verse_number
             )
             LEFT JOIN translation_verses tv ON (
-                tv.code = va.translation_verse_id
+                tv.translation = va.translation AND tv.book_number = va.book_number AND
+                tv.chapter_number = va.chapter_number AND tv.verse_number = va.verse_number
             )
             WHERE va.code = %s
             """,

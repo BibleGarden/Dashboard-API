@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from main import app
+from database import create_connection
 
 client = TestClient(app)
 
@@ -150,3 +151,71 @@ class TestCreateAnomalyIntegration:
         request_body = post_operation.get("requestBody", {})
         assert "content" in request_body
         assert "application/json" in request_body["content"]
+
+    def test_anomaly_stays_linked_after_translation_verse_resave(self, admin_headers):
+        """A TEXT re-import changes verse codes but must preserve anomaly text."""
+        connection = create_connection()
+        cursor = connection.cursor()
+        verse_code = None
+        replacement_code = None
+        anomaly_code = None
+        try:
+            cursor.execute(
+                """INSERT INTO translation_verses
+                   (translation, book_number, chapter_number, verse_number,
+                    verse_number_join, start_paragraph, text, html)
+                   VALUES (1, 43, 3, 999, 0, 0, 'Original text', 'Original text')"""
+            )
+            verse_code = cursor.lastrowid
+            connection.commit()
+
+            response = client.post("/api/voices/anomalies", json={
+                "voice": 1, "translation": 1, "book_number": 43,
+                "chapter_number": 3, "verse_number": 999,
+                "ratio": 1.5, "anomaly_type": "manual",
+            })
+            assert response.status_code == 200, response.text
+            anomaly_code = response.json()["code"]
+            assert response.json()["verse_text"] == "Original text"
+
+            cursor.execute("DELETE FROM translation_verses WHERE code = %s", (verse_code,))
+            cursor.execute(
+                """INSERT INTO translation_verses
+                   (translation, book_number, chapter_number, verse_number,
+                    verse_number_join, start_paragraph, text, html)
+                   VALUES (1, 43, 3, 999, 0, 0, 'Re-saved text', 'Re-saved text')"""
+            )
+            replacement_code = cursor.lastrowid
+            connection.commit()
+            assert replacement_code != verse_code
+
+            response = client.get("/api/voices/1/anomalies", headers=admin_headers)
+            assert response.status_code == 200, response.text
+            anomaly = next(item for item in response.json()["items"]
+                           if item["code"] == anomaly_code)
+            assert anomaly["verse_text"] == "Re-saved text"
+
+            response = client.patch(
+                f"/api/voices/anomalies/{anomaly_code}/status",
+                json={"status": "detected"},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["verse_text"] == "Re-saved text"
+        finally:
+            if anomaly_code is not None:
+                cursor.execute("DELETE FROM voice_anomalies WHERE code = %s", (anomaly_code,))
+            if replacement_code is not None:
+                cursor.execute("DELETE FROM translation_verses WHERE code = %s", (replacement_code,))
+            elif verse_code is not None:
+                cursor.execute("DELETE FROM translation_verses WHERE code = %s", (verse_code,))
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+    @pytest.mark.parametrize("path", ["/api/data", "/api/data?translation=syn"])
+    def test_export_alignments_omit_stale_verse_id(self, path):
+        response = client.get(path)
+        assert response.status_code == 200, response.text
+        alignments = response.json()["voice_alignments"]
+        assert alignments
+        assert all("translation_verse" not in item for item in alignments)

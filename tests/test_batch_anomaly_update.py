@@ -39,7 +39,6 @@ class TestBatchAnomalyUpdate:
             'ratio': 1.0,
             'anomaly_type': 'speed',
             'status': 'detected',
-            'translation_verse_id': 'verse_1',
             'verse_start_time': 10.0,
             'verse_end_time': 12.0,
             'verse_text': 'Test verse'
@@ -100,7 +99,6 @@ class TestBatchAnomalyUpdate:
             'ratio': 1.0,
             'anomaly_type': 'duration',
             'status': 'detected',
-            'translation_verse_id': 'verse_2',
             'verse_start_time': 15.0,
             'verse_end_time': 18.0,
             'verse_text': 'Another test verse'
@@ -158,7 +156,6 @@ class TestBatchAnomalyUpdate:
             'ratio': 1.0,
             'anomaly_type': 'speed',
             'status': 'detected',
-            'translation_verse_id': 'verse_3',
             'verse_start_time': 20.0,
             'verse_end_time': 23.0,
             'verse_text': 'Corrected test verse'

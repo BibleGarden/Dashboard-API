@@ -43,7 +43,6 @@ class TestBatchAnomalyUpdateIntegration:
             'ratio': 1.0,
             'anomaly_type': 'speed',
             'status': 'detected',
-            'translation_verse_id': 'verse_1',
             'verse_start_time': 10.0,
             'verse_end_time': 12.0,
             'verse_text': 'Test verse'
@@ -77,7 +76,7 @@ class TestBatchAnomalyUpdateIntegration:
         params = update_call[0][1]
         
         assert 'WHERE voice = %s AND book_number = %s AND chapter_number = %s AND verse_number = %s' in query
-        assert params == ('confirmed', 1, 1, 1, 1)
+        assert params == ('confirmed', 'confirmed', 1, 1, 1, 1)
 
     @patch('app.main.create_connection')
     def test_patch_anomaly_status_disproved_updates_all_verse_anomalies(self, mock_create_connection):
@@ -104,7 +103,6 @@ class TestBatchAnomalyUpdateIntegration:
             'ratio': 0.9,
             'anomaly_type': 'duration',
             'status': 'detected',
-            'translation_verse_id': 'verse_2',
             'verse_start_time': 25.5,
             'verse_end_time': 28.3,
             'verse_text': 'Test verse'
@@ -138,7 +136,7 @@ class TestBatchAnomalyUpdateIntegration:
         params = update_call[0][1]
         
         assert 'WHERE voice = %s AND book_number = %s AND chapter_number = %s AND verse_number = %s' in query
-        assert params == ('disproved', 2, 2, 3, 5)
+        assert params == ('disproved', 'disproved', 2, 2, 3, 5)
 
     @patch('app.main.create_connection')
     def test_patch_anomaly_status_corrected_updates_all_verse_anomalies(self, mock_create_connection):
@@ -165,7 +163,6 @@ class TestBatchAnomalyUpdateIntegration:
             'ratio': 1.1,
             'anomaly_type': 'speed',
             'status': 'detected',
-            'translation_verse_id': 'verse_3',
             'verse_start_time': 45.0,
             'verse_end_time': 48.0,
             'verse_text': 'Corrected verse'
@@ -203,7 +200,7 @@ class TestBatchAnomalyUpdateIntegration:
         params = update_call[0][1]
         
         assert 'WHERE voice = %s AND book_number = %s AND chapter_number = %s AND verse_number = %s' in query
-        assert params == ('corrected', 3, 3, 7, 12)
+        assert params == ('corrected', 'corrected', 3, 3, 7, 12)
 
     @patch('app.main.create_connection')
     def test_patch_anomaly_status_different_verses_not_affected(self, mock_create_connection):
@@ -230,7 +227,6 @@ class TestBatchAnomalyUpdateIntegration:
             'ratio': 1.0,
             'anomaly_type': 'speed',
             'status': 'detected',
-            'translation_verse_id': 'verse_1',
             'verse_start_time': 10.0,
             'verse_end_time': 12.0,
             'verse_text': 'Test verse 1'
@@ -264,4 +260,4 @@ class TestBatchAnomalyUpdateIntegration:
         params = update_call[0][1]
         
         assert 'WHERE voice = %s AND book_number = %s AND chapter_number = %s AND verse_number = %s' in query
-        assert params == ('confirmed', 4, 1, 1, 1)  # Only verse 1 should be affected
+        assert params == ('confirmed', 'confirmed', 4, 1, 1, 1)  # Only verse 1 should be affected

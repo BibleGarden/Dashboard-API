@@ -34,7 +34,6 @@ class TestAnomalyCorrection:
             'ratio': 1.33,
             'anomaly_type': 'fast',
             'status': 'detected',
-            'translation_verse_id': 1,
             'verse_start_time': 10.5,
             'verse_end_time': 12.0,
             'verse_text': 'For God so loved the world...'
