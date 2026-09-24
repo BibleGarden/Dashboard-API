@@ -129,17 +129,17 @@ INSERT INTO voices (code, alias, name, description, translation, is_music, link_
 -- ============================================================
 -- voice_alignments (таймкоды для seed-стихов)
 -- ============================================================
-INSERT INTO voice_alignments (code, voice, translation_verse, book_number, chapter_number, verse_number, `begin`, `end`, is_correct) VALUES
-(1, 1, 1, 1, 1, 1, 17.650, 24.550, NULL),
-(2, 1, 2, 43, 3, 16, 167.570, 179.370, NULL),
-(3, 1, 3, 43, 3, 17, 181.090, 188.850, NULL);
+INSERT INTO voice_alignments (code, voice, book_number, chapter_number, verse_number, `begin`, `end`, is_correct) VALUES
+(1, 1, 1, 1, 1, 17.650, 24.550, NULL),
+(2, 1, 43, 3, 16, 167.570, 179.370, NULL),
+(3, 1, 43, 3, 17, 181.090, 188.850, NULL);
 
 -- ============================================================
 -- voice_anomalies (2 записи для интеграционных тестов)
 -- ============================================================
-INSERT INTO voice_anomalies (code, voice, translation, book_number, chapter_number, verse_number, translation_verse_id, word, position_in_verse, position_from_end, duration, speed, ratio, anomaly_type, status, created_at, updated_at) VALUES
-(1, 1, 1, 1, 1, 1, 1, 'в', 1, 7, 0.030, 33.33, 3.88, 'fast', 'detected', NOW(), NULL),
-(2, 1, 1, 43, 3, 16, 2, 'так', 3, 15, 0.050, 20.00, 2.50, 'fast', 'detected', NOW(), NULL);
+INSERT INTO voice_anomalies (code, voice, translation, book_number, chapter_number, verse_number, word, position_in_verse, position_from_end, duration, speed, ratio, anomaly_type, status, created_at, updated_at) VALUES
+(1, 1, 1, 1, 1, 1, 'в', 1, 7, 0.030, 33.33, 3.88, 'fast', 'detected', NOW(), NULL),
+(2, 1, 1, 43, 3, 16, 'так', 3, 15, 0.050, 20.00, 2.50, 'fast', 'detected', NOW(), NULL);
 
 -- ============================================================
 -- bible_stat (эталонные данные для проверок)

@@ -79,9 +79,12 @@ def run_migrations():
         with open(filepath, 'r', encoding='utf-8') as f:
             sql = f.read()
 
-        # Remove hardcoded DB name from old migrations
+        # Keep every migration in the disposable test database, including
+        # migrations that normally manage operational tables in cep_public.
         sql = sql.replace('`bible_pause`.', '')
         sql = sql.replace('`cep`.', '')
+        sql = sql.replace('USE cep_public', f'USE {TEST_DB_NAME}')
+        sql = sql.replace('cep_public.', f'{TEST_DB_NAME}.')
 
         # Production uses utf8mb3, where varchar(10000) fits within the row size limit.
         # With utf8mb4, two varchar(10000) exceed 65535 bytes, so replace with text.
@@ -97,11 +100,24 @@ def run_migrations():
             )
             if not non_comment.strip():
                 continue
+            use_match = re.search(r'\bUSE\s+`?([A-Za-z_][A-Za-z_0-9]*)`?', non_comment, re.I)
+            if use_match and use_match.group(1) != TEST_DB_NAME:
+                raise RuntimeError(f"Migration {migration_file} switches to {use_match.group(1)}")
+
+            target_match = re.search(
+                r'\b(?:CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE|'
+                r'DROP\s+TABLE(?:\s+IF\s+EXISTS)?|TRUNCATE\s+TABLE|INSERT\s+INTO|'
+                r'REPLACE\s+INTO|UPDATE|DELETE\s+FROM)\s+`?([A-Za-z_][A-Za-z_0-9]*)`?\s*\.',
+                non_comment, re.I,
+            )
+            if target_match and target_match.group(1) != TEST_DB_NAME:
+                raise RuntimeError(
+                    f"Migration {migration_file} targets {target_match.group(1)} outside {TEST_DB_NAME}"
+                )
             try:
                 cursor.execute(stmt)
             except Error as e:
-                # Non-critical errors: duplicate index, column already exists, etc.
-                print(f"  Warning in {migration_file}: {e}")
+                raise RuntimeError(f"Migration {migration_file} failed: {e}") from e
 
         # Record the migration as executed
         cursor.execute(

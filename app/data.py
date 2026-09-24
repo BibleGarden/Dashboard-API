@@ -705,7 +705,7 @@ def get_data(
             # voice_alignments with COALESCE (manual fixes applied)
             cursor.execute("""
                 SELECT
-                    va.code, va.voice, va.translation_verse, va.book_number,
+                    va.code, va.voice, va.book_number,
                     va.chapter_number, va.verse_number,
                     COALESCE(vmf.begin, va.begin) AS `begin`,
                     COALESCE(vmf.end, va.end) AS `end`,
@@ -783,7 +783,7 @@ def get_data(
             # voice_alignments with COALESCE
             cursor.execute(f"""
                 SELECT
-                    va.code, va.voice, va.translation_verse, va.book_number,
+                    va.code, va.voice, va.book_number,
                     va.chapter_number, va.verse_number,
                     COALESCE(vmf.begin, va.begin) AS `begin`,
                     COALESCE(vmf.end, va.end) AS `end`,

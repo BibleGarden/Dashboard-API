@@ -16,9 +16,9 @@ class TestCreateVoiceAnomaly:
         mock_create_connection.return_value = mock_connection
         mock_connection.cursor.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {'code': 1},  # voice exists
+            {'code': 1, 'translation': 1},  # voice exists
             {'code': 1},  # translation exists
-            {'code': 12345},  # translation_verse_id
+            {'verse_exists': 1},  # verse exists
             {  # created anomaly
                 'code': 1,
                 'voice': 1,
@@ -68,6 +68,32 @@ class TestCreateVoiceAnomaly:
         assert result['code'] == 1
         assert result['anomaly_type'] == 'manual'
         assert result['status'] == 'detected'
+        assert 'translation_verse_id' not in mock_cursor.execute.call_args_list[3].args[0]
+
+    @patch('main.create_connection')
+    def test_create_anomaly_rejects_voice_translation_mismatch(self, mock_create_connection):
+        mock_connection = Mock()
+        mock_cursor = Mock()
+        mock_create_connection.return_value = mock_connection
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchone.side_effect = [
+            {'code': 1, 'translation': 1},
+            {'code': 16},
+        ]
+
+        from main import create_voice_anomaly
+
+        anomaly_data = VoiceAnomalyCreateModel(
+            voice=1, translation=16, book_number=43, chapter_number=3,
+            verse_number=16, ratio=1.5,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            create_voice_anomaly(anomaly_data)
+
+        assert exc_info.value.status_code == 422
+        assert 'Voice and anomaly translation must match' in str(exc_info.value.detail)
+        assert mock_cursor.execute.call_count == 2
+        mock_connection.rollback.assert_called_once()
     
     @patch('main.create_connection')
     def test_create_anomaly_voice_not_found(self, mock_create_connection):
@@ -103,7 +129,7 @@ class TestCreateVoiceAnomaly:
         mock_create_connection.return_value = mock_connection
         mock_connection.cursor.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {'code': 1},  # voice exists
+            {'code': 1, 'translation': 1},  # voice exists
             None  # translation not found
         ]
         
@@ -132,7 +158,7 @@ class TestCreateVoiceAnomaly:
         mock_create_connection.return_value = mock_connection
         mock_connection.cursor.return_value = mock_cursor
         mock_cursor.fetchone.side_effect = [
-            {'code': 1},  # voice exists
+            {'code': 1, 'translation': 1},  # voice exists
             {'code': 1},  # translation exists
             None  # verse not found
         ]

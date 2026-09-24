@@ -32,7 +32,6 @@ class TestTimingPrecision:
             'ratio': 1.33,
             'anomaly_type': 'fast',
             'status': 'detected',
-            'translation_verse_id': 1,
             'verse_start_time': 10.500,
             'verse_end_time': 12.000,
             'verse_text': 'Test verse'

@@ -33,7 +33,6 @@ class TestVoiceManualFixes:
             'ratio': 1.33,
             'anomaly_type': 'fast',  # Now NOT NULL
             'status': 'detected',
-            'translation_verse_id': 1,
             'verse_start_time': 10.5,
             'verse_end_time': 12.0,
             'verse_text': 'For God so loved the world...'
@@ -381,7 +380,6 @@ class TestVoiceManualFixes:
             'ratio': 1.5,
             'anomaly_type': 'fast',
             'status': 'detected',
-            'translation_verse_id': 1,
             'verse_start_time': 10.0,
             'verse_end_time': 15.0,
             'verse_text': 'Test verse'
