@@ -94,7 +94,7 @@ def get_stats_summary(
         """, (previous_start_days_ago, current_start_days_ago))
         previous_totals = cursor.fetchone()
 
-        # Unique IPs from the available raw portion of the current period.
+        # Unique IP-based pseudonyms from the available raw portion.
         current_raw_start_days_ago = min(days, RAW_RETENTION_DAYS) - 1
         cursor.execute(f"""
             SELECT COUNT(DISTINCT client_ip) AS unique_ips
@@ -104,7 +104,7 @@ def get_stats_summary(
         """, (current_raw_start_days_ago,))
         raw_ips = cursor.fetchone()
 
-        # Unique IPs for the previous period; not available when the raw
+        # Unique IP-based pseudonyms for the previous period; unavailable when raw
         # retention window cannot contain that whole calendar interval.
         previous_unique_ips = None
         if days * 2 <= RAW_RETENTION_DAYS:
@@ -323,7 +323,9 @@ def get_recent_requests(
         Optional[str], Query(pattern="^(?:[1-5][0-9]{2}|[1-5][xX]{2})$")
     ] = None,
     method: Annotated[Optional[str], Query(max_length=10)] = None,
-    client_ip: Annotated[Optional[str], Query(max_length=45)] = None,
+    client_pseudonym: Annotated[
+        Optional[str], Query(min_length=1, max_length=40, pattern="^[0-9a-fA-F]+$")
+    ] = None,
     username: str = RequireJWT,
 ):
     connection = create_connection()
@@ -342,14 +344,14 @@ def get_recent_requests(
         if method:
             where_clauses.append("method = %s")
             params.append(method.upper())
-        if client_ip:
+        if client_pseudonym:
             where_clauses.append("client_ip LIKE %s ESCAPE '='")
-            params.append(f"%{escape_like_literal(client_ip)}%")
+            params.append(f"{escape_like_literal(client_pseudonym.lower())}%")
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
         cursor.execute(f"""
             SELECT id, endpoint, method, status_code, response_time_ms,
-                   client_ip, user_agent, created_at
+                   client_ip AS client_pseudonym, user_agent, created_at
             FROM {db}.api_requests
             {where_sql}
             ORDER BY id DESC

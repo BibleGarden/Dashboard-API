@@ -13,7 +13,7 @@ services:
     restart: always
     networks:
       - mysql_default
-    command: ["fastapi", "dev", "app/main.py", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "main:app", "--app-dir", "app", "--reload", "--reload-dir", "app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
 
 networks:
   mysql_default:

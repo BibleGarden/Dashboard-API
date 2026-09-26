@@ -371,7 +371,7 @@ class RecentRequestRowModel(BaseModel):
     method: str
     status_code: int
     response_time_ms: int
-    client_ip: str
+    client_pseudonym: str
     user_agent: Optional[str] = Field(
         ...,
         json_schema_extra={"x-preserve-nullability": True},
