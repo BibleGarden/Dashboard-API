@@ -57,7 +57,7 @@ or use a throwaway container:
 
 ```bash
 docker run --rm --network mysql_default --env-file .env -e AUDIO_DIR=/tmp \
-  -v "$PWD":/code -w /code dashboard-api-dashboard-api \
+  -e DB_TIME_ZONE=Europe/Moscow -v "$PWD":/code -w /code dashboard-api-dashboard-api \
   sh -c 'PYTHONPATH=app pytest tests/test_data_index.py -q --noconftest'
 ```
 

@@ -2,11 +2,12 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from auth import RequireJWT
 from config import PUBLIC_DB_NAME
 from database import create_connection
+from utc_time import mysql_datetime_as_utc
 
 router = APIRouter(prefix="/content-reports", tags=["Content reports"])
 ContentReportStatus = Literal[
@@ -24,9 +25,11 @@ class ContentReportItem(BaseModel):
     user_comment: Optional[str]
     language: Literal["ru", "en", "uk"]
     status: ContentReportStatus
-    created_at: datetime = Field(
-        description="Report creation time in the database's Europe/Moscow timezone"
-    )
+    created_at: datetime = Field(description="UTC time with a Z suffix")
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime) -> str:
+        return mysql_datetime_as_utc(value)
 
 
 class ContentReportsResponse(BaseModel):

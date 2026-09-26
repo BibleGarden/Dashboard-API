@@ -1,5 +1,6 @@
 import os
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 # Schema names cannot be passed as query parameters, so `PUBLIC_DB_NAME` is
@@ -49,6 +50,11 @@ DB_PORT = _get_int("DB_PORT", 3306)
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "cep_admin")
+DB_TIME_ZONE = _require("DB_TIME_ZONE")
+try:
+    ZoneInfo(DB_TIME_ZONE)
+except (ZoneInfoNotFoundError, ValueError) as exc:
+    raise RuntimeError(f"Invalid DB_TIME_ZONE: {DB_TIME_ZONE}") from exc
 
 # Path to MP3 files storage (inside container)
 MP3_FILES_PATH = os.getenv("MP3_FILES_PATH", "audio")

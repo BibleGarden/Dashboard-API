@@ -15,6 +15,13 @@ docker compose up -d --build
 
 The API will be available at `http://localhost:8084/api` (Swagger UI at `/docs`).
 
+`DB_TIME_ZONE` is required: local Compose sets `Europe/Moscow`, while production
+Compose sets `UTC`. MySQL returns naive datetimes, so the API uses this setting
+to serialize response instants with a UTC `Z`. Production rows created before
+the UTC cut-over remain MSK-naive and are not changed; the deployment protocol
+records their boundary. Daily production statistics use UTC days after that
+boundary, while older aggregate rows keep Moscow-day semantics.
+
 ## Authorization
 
 Two-level auth system:

@@ -1,8 +1,9 @@
 # models.py
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 from typing import Optional, Literal
 from enum import Enum
 from datetime import date, datetime
+from utc_time import mysql_datetime_as_utc
 
 # Languages & Translations
 
@@ -136,6 +137,10 @@ class VoiceAnomalyModel(BaseModel):
     status: AnomalyStatus = AnomalyStatus.DETECTED
     verse_text: Optional[str] = None
     updated_at: Optional[datetime] = None
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, value: Optional[datetime]) -> Optional[str]:
+        return mysql_datetime_as_utc(value) if value is not None else None
 
 class VoiceAnomaliesResponseModel(BaseModel):
     items: list[VoiceAnomalyModel]
@@ -383,6 +388,10 @@ class RecentRequestRowModel(BaseModel):
         json_schema_extra={"x-preserve-nullability": True},
     )
     created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime) -> str:
+        return mysql_datetime_as_utc(value)
 
 
 class RecentRequestsResponseModel(BaseModel):

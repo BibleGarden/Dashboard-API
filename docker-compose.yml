@@ -6,6 +6,8 @@ services:
       - "8085:8000"
     env_file:
       - .env
+    environment:
+      DB_TIME_ZONE: Europe/Moscow
     volumes:
       # Host path with mp3 files. Set AUDIO_DIR in .env
       - ${AUDIO_DIR:?set AUDIO_DIR}:/audio
