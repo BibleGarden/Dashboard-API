@@ -1,5 +1,6 @@
 import unittest
 import os
+import uuid
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
@@ -11,6 +12,28 @@ from database import create_connection
 class TestStats(unittest.TestCase):
     """Tests for the /api/stats endpoints (summary groups/trends, recent filters)"""
 
+    @classmethod
+    def setUpClass(cls):
+        # Stats rows live in a private schema; other agents may use cep_test.
+        cls.stats_db = f"cep_stats_ip_{uuid.uuid4().hex[:12]}"
+        connection = create_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(f"CREATE DATABASE {cls.stats_db} CHARACTER SET utf8mb4")
+        finally:
+            cursor.close()
+            connection.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        connection = create_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(f"DROP DATABASE {cls.stats_db}")
+        finally:
+            cursor.close()
+            connection.close()
+
     def setUp(self):
         self.client = TestClient(app)
         login_response = self.client.post("/api/auth/login", json={
@@ -21,15 +44,15 @@ class TestStats(unittest.TestCase):
         self.token = login_response.json()["access_token"]
         self.headers = {"Authorization": f"Bearer {self.token}"}
 
-        # Redirect stats queries from cep_public to the test database
+        # Redirect stats queries from cep_public to this class's private schema.
         self._public_db = stats_module.PUBLIC_DB_NAME
-        stats_module.PUBLIC_DB_NAME = "cep_test"
+        stats_module.PUBLIC_DB_NAME = self.stats_db
 
         connection = create_connection()
         cursor = connection.cursor()
         try:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cep_test.api_requests (
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.stats_db}.api_requests (
                     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                     endpoint VARCHAR(255) NOT NULL,
                     method VARCHAR(10) NOT NULL,
@@ -42,8 +65,8 @@ class TestStats(unittest.TestCase):
                     INDEX idx_endpoint (endpoint)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cep_test.api_request_daily_stats (
+            cursor.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.stats_db}.api_request_daily_stats (
                     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                     date DATE NOT NULL,
                     endpoint VARCHAR(255) NOT NULL,
@@ -54,8 +77,8 @@ class TestStats(unittest.TestCase):
                     UNIQUE KEY uk_date_endpoint (date, endpoint)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
-            cursor.execute("DELETE FROM cep_test.api_requests")
-            cursor.execute("DELETE FROM cep_test.api_request_daily_stats")
+            cursor.execute(f"DELETE FROM {self.stats_db}.api_requests")
+            cursor.execute(f"DELETE FROM {self.stats_db}.api_request_daily_stats")
             cursor.execute("SELECT CURDATE(), NOW()")
             self.today, self.now = cursor.fetchone()
             connection.commit()
@@ -70,8 +93,8 @@ class TestStats(unittest.TestCase):
         connection = create_connection()
         cursor = connection.cursor()
         try:
-            cursor.execute("DELETE FROM cep_test.api_requests")
-            cursor.execute("DELETE FROM cep_test.api_request_daily_stats")
+            cursor.execute(f"DELETE FROM {self.stats_db}.api_requests")
+            cursor.execute(f"DELETE FROM {self.stats_db}.api_request_daily_stats")
             connection.commit()
         finally:
             cursor.close()
@@ -80,13 +103,13 @@ class TestStats(unittest.TestCase):
     # ------------------------------------------------------------- fixtures ----
 
     def _insert_raw(self, endpoint, method="GET", status=200, ms=50,
-                    ip="10.0.0.1", days_ago=0):
+                    ip="a" * 40, days_ago=0):
         created_at = self.now - timedelta(days=days_ago)
         connection = create_connection()
         cursor = connection.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO cep_test.api_requests
+            cursor.execute(f"""
+                INSERT INTO {self.stats_db}.api_requests
                     (endpoint, method, status_code, response_time_ms, client_ip, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (endpoint, method, status, ms, ip, created_at.strftime("%Y-%m-%d %H:%M:%S")))
@@ -99,8 +122,8 @@ class TestStats(unittest.TestCase):
         connection = create_connection()
         cursor = connection.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO cep_test.api_request_daily_stats
+            cursor.execute(f"""
+                INSERT INTO {self.stats_db}.api_request_daily_stats
                     (date, endpoint, request_count, unique_ips, avg_response_time_ms, error_count)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (date, endpoint, requests, unique_ips, avg_ms, errors))
@@ -118,14 +141,14 @@ class TestStats(unittest.TestCase):
         self._insert_daily(self.today - timedelta(days=40), "/api/translations", 200, errors=10, avg_ms=30)
         self._insert_daily(self.today - timedelta(days=40), "_total_", 200, errors=10, avg_ms=30)
         # Raw rows: today (live) — scripture, ai and error traffic
-        self._insert_raw("/api/translations", status=200, ms=30, ip="10.0.0.1")
-        self._insert_raw("/api/translations", status=404, ms=40, ip="10.0.0.2")
-        self._insert_raw("/api/ai/question", method="POST", status=200, ms=800, ip="10.0.0.3")
+        self._insert_raw("/api/translations", status=200, ms=30, ip="a" * 40)
+        self._insert_raw("/api/translations", status=404, ms=40, ip="b" * 40)
+        self._insert_raw("/api/ai/question", method="POST", status=200, ms=800, ip="c" * 40)
         # Slow endpoint: enough rows to pass the SLOW_ENDPOINTS_MIN_REQUESTS threshold
         for _ in range(12):
             self._insert_raw("/api/slow", status=200, ms=2000, days_ago=1)
         # Raw row inside the previous seven-calendar-day window D-13..D-7.
-        self._insert_raw("/api/translations", status=200, ms=30, ip="10.9.9.9", days_ago=10)
+        self._insert_raw("/api/translations", status=200, ms=30, ip="d" * 40, days_ago=10)
 
     # ---------------------------------------------------------------- tests ----
 
@@ -143,6 +166,12 @@ class TestStats(unittest.TestCase):
             self.assertIn(group, data["groups"])
             for field in ("requests", "errors", "avg_response_time_ms"):
                 self.assertIn(field, data["groups"][group])
+
+    def test_same_pseudonym_counts_once_across_endpoints(self):
+        self._insert_raw("/api/ai/scripture", method="POST", ip="a" * 40)
+        response = self.client.get("/api/stats/summary?days=1", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["today"]["unique_ips"], 3)
 
     def test_summary_groups_classification(self):
         response = self.client.get("/api/stats/summary?days=30", headers=self.headers)
@@ -297,13 +326,13 @@ class TestStats(unittest.TestCase):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["items"][0]["endpoint"], "/api/ai/question")
 
-    def test_recent_substring_filters_treat_like_metacharacters_as_literals(self):
-        self._insert_raw("/api/literal_value", ip="client_tag")
-        self._insert_raw("/api/literalXvalue", ip="clientXtag")
+    def test_recent_endpoint_substring_treats_like_metacharacters_as_literals(self):
+        self._insert_raw("/api/literal_value", ip="e" * 40)
+        self._insert_raw("/api/literalXvalue", ip="f" * 40)
 
         response = self.client.get(
             "/api/stats/recent",
-            params={"limit": 100, "endpoint": "literal_", "client_ip": "client_"},
+            params={"limit": 100, "endpoint": "literal_"},
             headers=self.headers,
         )
         self.assertEqual(response.status_code, 200)
@@ -319,13 +348,34 @@ class TestStats(unittest.TestCase):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["items"][0]["status_code"], 404)
 
-    def test_recent_filter_by_method_and_ip(self):
+    def test_recent_filter_by_method_and_pseudonym_prefix_or_full_value(self):
         response = self.client.get(
-            "/api/stats/recent?limit=100&method=post&client_ip=10.0.0.3",
+            "/api/stats/recent?limit=100&method=post&client_pseudonym=CCCCCCCC",
             headers=self.headers)
         data = response.json()
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["items"][0]["method"], "POST")
+        self.assertEqual(data["items"][0]["client_pseudonym"], "c" * 40)
+
+        full = self.client.get(
+            "/api/stats/recent", params={"client_pseudonym": "c" * 40},
+            headers=self.headers,
+        )
+        self.assertEqual(full.json()["count"], 1)
+        suffix = self.client.get(
+            "/api/stats/recent", params={"client_pseudonym": "c" * 39 + "a"},
+            headers=self.headers,
+        )
+        self.assertEqual(suffix.json()["count"], 0)
+
+    def test_recent_rejects_non_hex_pseudonym_filter(self):
+        for value in ("10.0.0.3", "abc%", "abc_"):
+            with self.subTest(value=value):
+                response = self.client.get(
+                    "/api/stats/recent", params={"client_pseudonym": value},
+                    headers=self.headers,
+                )
+                self.assertEqual(response.status_code, 422)
 
     def test_recent_invalid_status_rejected(self):
         for status in ("abc", "2x0"):

@@ -594,13 +594,15 @@ paths:
           title: Method
           type: string
           maxLength: 10
-      - name: client_ip
+      - name: client_pseudonym
         in: query
         required: false
         schema:
-          title: Client Ip
+          title: Client Pseudonym
           type: string
-          maxLength: 45
+          maxLength: 40
+          minLength: 1
+          pattern: ^[0-9a-fA-F]+$
       responses:
         '200':
           description: Successful Response
@@ -1401,9 +1403,9 @@ components:
         response_time_ms:
           type: integer
           title: Response Time Ms
-        client_ip:
+        client_pseudonym:
           type: string
-          title: Client Ip
+          title: Client Pseudonym
         user_agent:
           title: User Agent
           type:
@@ -1420,7 +1422,7 @@ components:
       - method
       - status_code
       - response_time_ms
-      - client_ip
+      - client_pseudonym
       - user_agent
       - created_at
       title: RecentRequestRowModel

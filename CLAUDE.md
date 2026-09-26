@@ -111,14 +111,20 @@ XOR is commutative, so row order and the AUTO_INCREMENT `code` (which a rebuild 
   from `api_request_daily_stats`; today comes from raw `api_requests`, so the
   daily aggregate for today is deliberately excluded. Response-time averages
   in totals, previous totals, groups and top endpoints are weighted by request
-  count. Current unique IPs cover the available raw portion (at most 14 calendar
+  count. Current unique clients are counts of distinct keyed IP pseudonyms
+  over the available raw portion (at most 14 calendar
   dates); `previous_totals.unique_ips` is `null` unless the complete previous
   interval is inside that retention (`2 * N <= 14`). Traffic groups are
   `/api/ai/*` → `ai`, other `/api/*` → `scripture`, and everything else →
   `other`. Optional `top_group=scripture|ai|other` and `top_endpoint=<substring>`
   filter only `top_endpoints`, before its ordering and limit; all other summary
   blocks remain unfiltered. `GET /api/stats/recent` supports endpoint substring,
-  status class/code, HTTP method and client-IP substring filters.
+  status class/code, HTTP method and `client_pseudonym` prefix filters. Recent
+  rows expose a pseudonym, not an IP address; the storage column retains its
+  historical `client_ip` name.
+  `tests/test_stats.py` creates and drops its own uniquely named statistics
+  schema; it reads `cep_test` only for admin authentication. Do not run
+  `tests/setup_test_db.py` on a shared database: that script drops `cep_test`.
 - **`checks.py`** — DB integrity check endpoints (verse counts, voice alignment validation).
 
 ### Key Patterns
