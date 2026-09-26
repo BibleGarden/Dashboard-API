@@ -42,12 +42,22 @@ See [docs/TESTING.md](docs/TESTING.md) for details.
 ## Migrations
 
 ```bash
-docker compose exec bible-api python3 migrate.py migrate          # run pending
-docker compose exec bible-api python3 migrate.py create "name"    # create new
-docker compose exec bible-api python3 migrate.py status            # show status
+docker compose exec dashboard-api python3 migrate.py migrate          # run pending
+docker compose exec dashboard-api python3 migrate.py create "name"    # create new
+docker compose exec dashboard-api python3 migrate.py status            # show status
 ```
 
 See [migrations/README.md](migrations/README.md) for details.
+
+## Bible-API request statistics
+
+This repository owns the `cep_public` statistics schema and serves it through
+JWT-protected `/api/stats/summary` and `/api/stats/recent`. The summary includes
+request counts, errors and average latency by `bible-garden`, `lampada`, `ops`
+and historical `unknown` application. Recent requests expose and filter the
+same application identity. The `API_KEY` in this repository authenticates
+Dashboard-API reads; it is distinct from Bible-API's per-application keys.
+Apply the statistics migration before deploying the new Bible-API writer.
 
 ## Documentation
 

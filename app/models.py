@@ -324,6 +324,10 @@ class StatsGroupsModel(BaseModel):
     other: StatsGroupMetricsModel
 
 
+class StatsApplicationMetricsModel(StatsGroupMetricsModel):
+    application: Literal["bible-garden", "lampada", "ops", "unknown"]
+
+
 class StatsDailyRowModel(BaseModel):
     date: date
     requests: int
@@ -359,6 +363,7 @@ class StatsSummaryResponseModel(BaseModel):
     previous_totals: StatsPreviousTotalsModel
     today: StatsTodayModel
     groups: StatsGroupsModel
+    applications: list[StatsApplicationMetricsModel]
     daily: list[StatsDailyRowModel]
     daily_groups: list[StatsDailyGroupRowModel]
     top_endpoints: list[StatsEndpointRowModel]
@@ -368,6 +373,7 @@ class StatsSummaryResponseModel(BaseModel):
 class RecentRequestRowModel(BaseModel):
     id: int
     endpoint: str
+    application: Literal["bible-garden", "lampada", "ops", "unknown"]
     method: str
     status_code: int
     response_time_ms: int
