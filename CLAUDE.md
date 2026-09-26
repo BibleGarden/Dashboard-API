@@ -129,6 +129,16 @@ XOR is commutative, so row order and the AUTO_INCREMENT `code` (which a rebuild 
   `tests/test_stats.py` creates and drops its own uniquely named statistics
   schema; it reads `cep_test` only for admin authentication. Do not run
   `tests/setup_test_db.py` on a shared database: that script drops `cep_test`.
+  The summary also returns counts, errors and average latency by authenticated
+  application (`bible-garden`, `lampada`, `ops`, historical and pre-switch
+  `unknown`). Recent requests expose `application` and accept an exact
+  `application` filter.
+  Statistics schema migrations are owned here, while Bible-API writes and
+  aggregates the rows. Overall `application='all'` endpoint and `_total_`
+  aggregates preserve distinct-client counts across applications; historical
+  `unknown` rows remain readable. Both application columns keep the `unknown`
+  default while the old Bible-API writer is being replaced. `API_KEY` here
+  remains Dashboard-API's own read key.
 - **`checks.py`** — DB integrity check endpoints (verse counts, voice alignment validation).
 
 ### Key Patterns

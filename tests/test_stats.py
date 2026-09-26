@@ -55,6 +55,7 @@ class TestStats(unittest.TestCase):
                 CREATE TABLE IF NOT EXISTS {self.stats_db}.api_requests (
                     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                     endpoint VARCHAR(255) NOT NULL,
+                    application VARCHAR(32) NOT NULL,
                     method VARCHAR(10) NOT NULL,
                     status_code SMALLINT UNSIGNED NOT NULL,
                     response_time_ms INT UNSIGNED NOT NULL,
@@ -70,11 +71,12 @@ class TestStats(unittest.TestCase):
                     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                     date DATE NOT NULL,
                     endpoint VARCHAR(255) NOT NULL,
+                    application VARCHAR(32) NOT NULL,
                     request_count INT UNSIGNED NOT NULL DEFAULT 0,
                     unique_ips INT UNSIGNED NOT NULL DEFAULT 0,
                     avg_response_time_ms INT UNSIGNED NOT NULL DEFAULT 0,
                     error_count INT UNSIGNED NOT NULL DEFAULT 0,
-                    UNIQUE KEY uk_date_endpoint (date, endpoint)
+                    UNIQUE KEY uk_date_endpoint_application (date, endpoint, application)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
             cursor.execute(f"DELETE FROM {self.stats_db}.api_requests")
@@ -103,30 +105,38 @@ class TestStats(unittest.TestCase):
     # ------------------------------------------------------------- fixtures ----
 
     def _insert_raw(self, endpoint, method="GET", status=200, ms=50,
-                    ip="a" * 40, days_ago=0):
+                    ip="a" * 40, days_ago=0, application="bible-garden"):
         created_at = self.now - timedelta(days=days_ago)
         connection = create_connection()
         cursor = connection.cursor()
         try:
             cursor.execute(f"""
                 INSERT INTO {self.stats_db}.api_requests
-                    (endpoint, method, status_code, response_time_ms, client_ip, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (endpoint, method, status, ms, ip, created_at.strftime("%Y-%m-%d %H:%M:%S")))
+                    (endpoint, application, method, status_code, response_time_ms, client_ip, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (endpoint, application, method, status, ms, ip,
+                  created_at.strftime("%Y-%m-%d %H:%M:%S")))
             connection.commit()
         finally:
             cursor.close()
             connection.close()
 
-    def _insert_daily(self, date, endpoint, requests, errors=0, avg_ms=50, unique_ips=1):
+    def _insert_daily(self, date, endpoint, requests, errors=0, avg_ms=50,
+                      unique_ips=1, application="bible-garden"):
         connection = create_connection()
         cursor = connection.cursor()
         try:
             cursor.execute(f"""
                 INSERT INTO {self.stats_db}.api_request_daily_stats
-                    (date, endpoint, request_count, unique_ips, avg_response_time_ms, error_count)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (date, endpoint, requests, unique_ips, avg_ms, errors))
+                    (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (date, endpoint, application, requests, unique_ips, avg_ms, errors))
+            if application == "bible-garden" and endpoint != "_total_":
+                cursor.execute(f"""
+                    INSERT INTO {self.stats_db}.api_request_daily_stats
+                        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+                    VALUES (%s, %s, 'all', %s, %s, %s, %s)
+                """, (date, endpoint, requests, unique_ips, avg_ms, errors))
             connection.commit()
         finally:
             cursor.close()
@@ -136,10 +146,10 @@ class TestStats(unittest.TestCase):
         # Aggregated rows: current period (10 and 2 days ago) and previous period (40 days ago)
         self._insert_daily(self.today - timedelta(days=10), "/api/translations", 100, errors=5, avg_ms=40)
         self._insert_daily(self.today - timedelta(days=10), "/api/ai/question", 20, errors=2, avg_ms=900)
-        self._insert_daily(self.today - timedelta(days=10), "_total_", 120, errors=7, avg_ms=183)
+        self._insert_daily(self.today - timedelta(days=10), "_total_", 120, errors=7, avg_ms=183, application="all")
         self._insert_daily(self.today - timedelta(days=2), "/api/translations", 50, errors=0, avg_ms=60)
         self._insert_daily(self.today - timedelta(days=40), "/api/translations", 200, errors=10, avg_ms=30)
-        self._insert_daily(self.today - timedelta(days=40), "_total_", 200, errors=10, avg_ms=30)
+        self._insert_daily(self.today - timedelta(days=40), "_total_", 200, errors=10, avg_ms=30, application="all")
         # Raw rows: today (live) — scripture, ai and error traffic
         self._insert_raw("/api/translations", status=200, ms=30, ip="a" * 40)
         self._insert_raw("/api/translations", status=404, ms=40, ip="b" * 40)
@@ -184,6 +194,71 @@ class TestStats(unittest.TestCase):
         self.assertEqual(data["groups"]["ai"]["errors"], 2)
         self.assertEqual(data["groups"]["scripture"]["avg_response_time_ms"], 47)
         self.assertEqual(data["groups"]["ai"]["avg_response_time_ms"], 895)
+
+    def test_application_breakdown_includes_legacy_unknown_and_live_lampada(self):
+        self._insert_daily(
+            self.today - timedelta(days=1), "/api/legacy", 4,
+            application="unknown",
+        )
+        self._insert_raw(
+            "/api/ai/question", method="POST", ip="d" * 40,
+            application="lampada",
+        )
+        response = self.client.get("/api/stats/summary?days=30", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        apps = {row["application"]: row for row in response.json()["applications"]}
+        self.assertEqual(apps["unknown"]["requests"], 4)
+        self.assertEqual(apps["lampada"]["requests"], 1)
+        self.assertEqual(apps["ops"]["requests"], 0)
+        self.assertEqual(apps["bible-garden"]["requests"], 173)
+
+    def test_daily_overall_total_does_not_sum_application_unique_clients(self):
+        day = self.today - timedelta(days=1)
+        self._insert_daily(day, "/api/test", 1, application="lampada")
+        self._insert_daily(day, "_total_", 1, application="lampada")
+        self._insert_daily(day, "_total_", 1, application="bible-garden")
+        self._insert_daily(day, "_total_", 2, unique_ips=1, application="all")
+        rows = self.client.get("/api/stats/summary?days=7", headers=self.headers).json()["daily"]
+        self.assertEqual(
+            [(row["requests"], row["unique_ips"]) for row in rows if row["date"] == str(day)],
+            [(2, 1)],
+        )
+
+    def test_legacy_unknown_daily_total_remains_visible(self):
+        day = self.today - timedelta(days=1)
+        self._insert_daily(day, "/api/legacy", 3, application="unknown")
+        self._insert_daily(day, "_total_", 3, application="unknown")
+        rows = self.client.get("/api/stats/summary?days=7", headers=self.headers).json()["daily"]
+        self.assertEqual(
+            [row["requests"] for row in rows if row["date"] == str(day)],
+            [3],
+        )
+
+    def test_top_endpoint_unique_clients_are_not_summed_across_apps(self):
+        day = self.today - timedelta(days=1)
+        self._insert_daily(day, "/api/shared", 2, unique_ips=1)
+        self._insert_daily(day, "/api/shared", 3, unique_ips=1, application="lampada")
+        connection = create_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(f"""
+                UPDATE {self.stats_db}.api_request_daily_stats
+                SET request_count = 5, unique_ips = 1
+                WHERE date = %s AND endpoint = '/api/shared' AND application = 'all'
+            """, (day,))
+            connection.commit()
+        finally:
+            cursor.close()
+            connection.close()
+
+        response = self.client.get(
+            "/api/stats/summary", params={"days": 7, "top_endpoint": "shared"},
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        row = response.json()["top_endpoints"][0]
+        self.assertEqual(row["requests"], 5)
+        self.assertEqual(row["unique_ips"], 1)
 
     def test_summary_uses_exact_calendar_boundaries_everywhere(self):
         response = self.client.get("/api/stats/summary?days=10", headers=self.headers)
@@ -318,6 +393,22 @@ class TestStats(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["count"], 16)
+        self.assertEqual(data["items"][0]["application"], "bible-garden")
+
+    def test_recent_application_filter(self):
+        self._insert_raw("/api/ai/question", application="lampada", ip="d" * 40)
+        response = self.client.get(
+            "/api/stats/recent", params={"application": "lampada"},
+            headers=self.headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["items"][0]["application"], "lampada")
+        invalid = self.client.get(
+            "/api/stats/recent", params={"application": "all"},
+            headers=self.headers,
+        )
+        self.assertEqual(invalid.status_code, 422)
 
     def test_recent_filter_by_endpoint(self):
         response = self.client.get(

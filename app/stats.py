@@ -22,6 +22,20 @@ GROUP_CASE = """
         ELSE 'other'
     END
 """
+APPLICATIONS = ("bible-garden", "lampada", "ops", "unknown")
+
+# New aggregate days have one overall row per endpoint. Historical rows from
+# before the key split have only application='unknown'.
+OVERALL_DAILY_FILTER = """
+    (daily_stats.application = 'all' OR (
+        daily_stats.application = 'unknown' AND NOT EXISTS (
+            SELECT 1 FROM {db}.api_request_daily_stats overall
+            WHERE overall.date = daily_stats.date
+              AND overall.endpoint = daily_stats.endpoint
+              AND overall.application = 'all'
+        )
+    ))
+"""
 
 
 def escape_like_literal(value: str) -> str:
@@ -63,10 +77,11 @@ def get_stats_summary(
                 SELECT request_count AS requests,
                        error_count AS errors,
                        avg_response_time_ms * request_count AS response_time_sum
-                FROM {db}.api_request_daily_stats
+                FROM {db}.api_request_daily_stats daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
                   AND date < CURDATE()
                   AND endpoint != '_total_'
+                  AND {OVERALL_DAILY_FILTER.format(db=db)}
                 UNION ALL
                 SELECT COUNT(*) AS requests,
                        COALESCE(SUM(status_code >= 400), 0) AS errors,
@@ -87,10 +102,11 @@ def get_stats_summary(
                     SUM(avg_response_time_ms * request_count)
                     / NULLIF(SUM(request_count), 0)
                 ), 0) AS avg_response_time_ms
-            FROM {db}.api_request_daily_stats
+            FROM {db}.api_request_daily_stats daily_stats
             WHERE date >= CURDATE() - INTERVAL %s DAY
               AND date <  CURDATE() - INTERVAL %s DAY
               AND endpoint != '_total_'
+              AND {OVERALL_DAILY_FILTER.format(db=db)}
         """, (previous_start_days_ago, current_start_days_ago))
         previous_totals = cursor.fetchone()
 
@@ -128,10 +144,11 @@ def get_stats_summary(
                 SELECT {GROUP_CASE} AS grp,
                        request_count AS requests, error_count AS errors,
                        avg_response_time_ms * request_count AS response_time_sum
-                FROM {db}.api_request_daily_stats
+                FROM {db}.api_request_daily_stats daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
                   AND date < CURDATE()
                   AND endpoint != '_total_'
+                  AND {OVERALL_DAILY_FILTER.format(db=db)}
                 UNION ALL
                 SELECT {GROUP_CASE} AS grp,
                        COUNT(*) AS requests,
@@ -156,6 +173,46 @@ def get_stats_summary(
                 "avg_response_time_ms": row["avg_response_time_ms"] or 0,
             }
 
+        # Historical unknown rows remain visible; today's raw rows are live.
+        cursor.execute(f"""
+            SELECT application, SUM(requests) AS requests,
+                   SUM(errors) AS errors,
+                   ROUND(SUM(response_time_sum) / NULLIF(SUM(requests), 0))
+                       AS avg_response_time_ms
+            FROM (
+                SELECT application, request_count AS requests,
+                       error_count AS errors,
+                       avg_response_time_ms * request_count AS response_time_sum
+                FROM {db}.api_request_daily_stats
+                WHERE date >= CURDATE() - INTERVAL %s DAY
+                  AND date < CURDATE() AND endpoint != '_total_'
+                  AND application != 'all'
+                UNION ALL
+                SELECT application, COUNT(*), SUM(status_code >= 400),
+                       SUM(response_time_ms)
+                FROM {db}.api_requests
+                WHERE created_at >= CURDATE()
+                  AND created_at < CURDATE() + INTERVAL 1 DAY
+                GROUP BY application
+            ) combined
+            GROUP BY application
+        """, (current_start_days_ago,))
+        application_rows = {row["application"]: row for row in cursor.fetchall()}
+        unexpected_applications = application_rows.keys() - set(APPLICATIONS)
+        if unexpected_applications:
+            raise ValueError(f"Unknown request applications: {sorted(unexpected_applications)}")
+        applications = [
+            {
+                "application": application,
+                "requests": application_rows.get(application, {}).get("requests") or 0,
+                "errors": application_rows.get(application, {}).get("errors") or 0,
+                "avg_response_time_ms": application_rows.get(application, {}).get(
+                    "avg_response_time_ms"
+                ) or 0,
+            }
+            for application in APPLICATIONS
+        ]
+
         # Daily breakdown: use _total_ rows from aggregated stats + today's live data
         cursor.execute(f"""
             SELECT date, requests, unique_ips,
@@ -163,10 +220,18 @@ def get_stats_summary(
             FROM (
                 SELECT date, request_count AS requests, unique_ips,
                        avg_response_time_ms, error_count AS errors
-                FROM {db}.api_request_daily_stats
+                FROM {db}.api_request_daily_stats daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
                   AND date < CURDATE()
                   AND endpoint = '_total_'
+                  AND (application = 'all' OR (
+                      application = 'unknown' AND NOT EXISTS (
+                          SELECT 1 FROM {db}.api_request_daily_stats all_totals
+                          WHERE all_totals.date = daily_stats.date
+                            AND all_totals.endpoint = '_total_'
+                            AND all_totals.application = 'all'
+                      )
+                  ))
                 UNION ALL
                 SELECT CURDATE() AS date, COUNT(*) AS requests,
                        COUNT(DISTINCT client_ip) AS unique_ips,
@@ -186,10 +251,11 @@ def get_stats_summary(
             SELECT date, grp, SUM(requests) AS requests
             FROM (
                 SELECT date, {GROUP_CASE} AS grp, request_count AS requests
-                FROM {db}.api_request_daily_stats
+                FROM {db}.api_request_daily_stats daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
                   AND date < CURDATE()
                   AND endpoint != '_total_'
+                  AND {OVERALL_DAILY_FILTER.format(db=db)}
                 UNION ALL
                 SELECT CURDATE() AS date, {GROUP_CASE} AS grp,
                        COUNT(*) AS requests
@@ -227,10 +293,11 @@ def get_stats_summary(
                        request_count AS requests, unique_ips,
                        avg_response_time_ms * request_count AS response_time_sum,
                        error_count AS errors
-                FROM {db}.api_request_daily_stats
+                FROM {db}.api_request_daily_stats daily_stats
                 WHERE date >= CURDATE() - INTERVAL %s DAY
                   AND date < CURDATE()
                   AND endpoint != '_total_'
+                  AND {OVERALL_DAILY_FILTER.format(db=db)}
                 UNION ALL
                 SELECT endpoint, {GROUP_CASE} AS grp,
                        COUNT(*) AS requests,
@@ -298,6 +365,7 @@ def get_stats_summary(
                 "errors": today["errors"] or 0,
             },
             "groups": groups,
+            "applications": applications,
             "daily": daily,
             "daily_groups": daily_groups,
             "top_endpoints": top_endpoints,
@@ -326,6 +394,9 @@ def get_recent_requests(
     client_pseudonym: Annotated[
         Optional[str], Query(min_length=1, max_length=40, pattern="^[0-9a-fA-F]+$")
     ] = None,
+    application: Annotated[
+        Optional[Literal["bible-garden", "lampada", "ops", "unknown"]], Query()
+    ] = None,
     username: str = RequireJWT,
 ):
     connection = create_connection()
@@ -347,10 +418,13 @@ def get_recent_requests(
         if client_pseudonym:
             where_clauses.append("client_ip LIKE %s ESCAPE '='")
             params.append(f"{escape_like_literal(client_pseudonym.lower())}%")
+        if application:
+            where_clauses.append("application = %s")
+            params.append(application)
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
         cursor.execute(f"""
-            SELECT id, endpoint, method, status_code, response_time_ms,
+            SELECT id, endpoint, application, method, status_code, response_time_ms,
                    client_ip AS client_pseudonym, user_agent, created_at
             FROM {db}.api_requests
             {where_sql}

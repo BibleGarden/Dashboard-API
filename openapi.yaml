@@ -603,6 +603,17 @@ paths:
           maxLength: 40
           minLength: 1
           pattern: ^[0-9a-fA-F]+$
+      - name: application
+        in: query
+        required: false
+        schema:
+          title: Application
+          enum:
+          - bible-garden
+          - lampada
+          - ops
+          - unknown
+          type: string
       responses:
         '200':
           description: Successful Response
@@ -1394,6 +1405,14 @@ components:
         endpoint:
           type: string
           title: Endpoint
+        application:
+          type: string
+          enum:
+          - bible-garden
+          - lampada
+          - ops
+          - unknown
+          title: Application
         method:
           type: string
           title: Method
@@ -1419,6 +1438,7 @@ components:
       required:
       - id
       - endpoint
+      - application
       - method
       - status_code
       - response_time_ms
@@ -1450,6 +1470,32 @@ components:
       required:
       - detail
       title: SimpleErrorResponse
+    StatsApplicationMetricsModel:
+      properties:
+        requests:
+          type: integer
+          title: Requests
+        errors:
+          type: integer
+          title: Errors
+        avg_response_time_ms:
+          type: integer
+          title: Avg Response Time Ms
+        application:
+          type: string
+          enum:
+          - bible-garden
+          - lampada
+          - ops
+          - unknown
+          title: Application
+      type: object
+      required:
+      - requests
+      - errors
+      - avg_response_time_ms
+      - application
+      title: StatsApplicationMetricsModel
     StatsDailyGroupRowModel:
       properties:
         date:
@@ -1611,6 +1657,11 @@ components:
           $ref: '#/components/schemas/StatsTodayModel'
         groups:
           $ref: '#/components/schemas/StatsGroupsModel'
+        applications:
+          items:
+            $ref: '#/components/schemas/StatsApplicationMetricsModel'
+          type: array
+          title: Applications
         daily:
           items:
             $ref: '#/components/schemas/StatsDailyRowModel'
@@ -1638,6 +1689,7 @@ components:
       - previous_totals
       - today
       - groups
+      - applications
       - daily
       - daily_groups
       - top_endpoints
