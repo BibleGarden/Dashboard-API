@@ -55,6 +55,7 @@ def test_content_reports_requires_admin_auth():
 
 
 def test_content_reports_returns_newest_first(monkeypatch, admin_headers):
+    monkeypatch.setattr(utc_time, "DB_TIME_ZONE", "Europe/Moscow")
     created_at = datetime(2026, 9, 19, 9, 30)
     connection = FakeConnection(
         [
