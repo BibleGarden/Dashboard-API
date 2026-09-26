@@ -1,9 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
 import content_reports
+import utc_time
 from app.main import app
+from models import RecentRequestRowModel
 
 
 class FakeCursor:
@@ -53,6 +55,7 @@ def test_content_reports_requires_admin_auth():
 
 
 def test_content_reports_returns_newest_first(monkeypatch, admin_headers):
+    monkeypatch.setattr(utc_time, "DB_TIME_ZONE", "Europe/Moscow")
     created_at = datetime(2026, 9, 19, 9, 30)
     connection = FakeConnection(
         [
@@ -84,7 +87,7 @@ def test_content_reports_returns_newest_first(monkeypatch, admin_headers):
                 "user_comment": None,
                 "language": "en",
                 "status": "unreviewed",
-                "created_at": "2026-09-19T09:30:00",
+                "created_at": "2026-09-19T06:30:00Z",
             }
         ],
         "count": 1,
@@ -93,6 +96,25 @@ def test_content_reports_returns_newest_first(monkeypatch, admin_headers):
     assert connection.cursor_instance.params == (25,)
     assert connection.cursor_instance.closed is True
     assert connection.closed is True
+
+
+def test_recent_request_serializes_utc_instant(monkeypatch):
+    monkeypatch.setattr(utc_time, "DB_TIME_ZONE", "UTC")
+    row = RecentRequestRowModel(
+        id=1, endpoint="/api/books", application="bible-garden", method="GET",
+        status_code=200, response_time_ms=10, client_pseudonym="a" * 40,
+        user_agent=None, created_at=datetime(2026, 9, 26, 9, 30),
+    )
+    assert row.model_dump(mode="json")["created_at"] == "2026-09-26T09:30:00Z"
+
+
+def test_mysql_timestamp_contract_rejects_aware_datetime():
+    try:
+        utc_time.mysql_datetime_as_utc(datetime(2026, 9, 26, tzinfo=timezone.utc))
+    except ValueError as exc:
+        assert "must be naive" in str(exc)
+    else:
+        raise AssertionError("aware timestamp was accepted")
 
 
 def test_content_reports_after_id_is_oldest_first(monkeypatch, admin_headers):

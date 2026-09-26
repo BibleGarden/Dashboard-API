@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 
 from config import MP3_FILES_PATH, AUDIO_BASE_URL
@@ -164,7 +164,7 @@ def create_range_response(file_path: Path, range_header: Optional[str], translat
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "max-age=432000",  # 5 days
         "Connection": "keep-alive",
-        "Last-Modified": datetime.fromtimestamp(file_stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT'),
+        "Last-Modified": datetime.fromtimestamp(file_stat.st_mtime, timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT'),
         "ETag": f'"{hex(hash(f"{file_stat.st_mtime}-{file_size}"))}"'
     }
     
@@ -300,4 +300,4 @@ def get_audio_file(
     range_header = request.headers.get('range')
     
     # Return response with Range requests support
-    return create_range_response(file_path, range_header, translation, voice, book, chapter) 
+    return create_range_response(file_path, range_header, translation, voice, book, chapter)
