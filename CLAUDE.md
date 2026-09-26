@@ -10,10 +10,14 @@ Admin API — a FastAPI service for Bible Garden data management. Works with the
 
 ### Run / Build
 ```bash
-docker compose up -d --build                    # Start (dev mode via compose command override)
+docker compose up -d --build                    # Start (Uvicorn reload via compose command override)
 docker logs dashboard-api -f                        # View logs
 docker compose down                             # Stop
 ```
+
+Dockerfile and Compose run Uvicorn with `--no-access-log`; its default access
+line would include the client address and full URL with query string. Compose
+retains automatic reload for local development.
 
 ### Tests (run inside container)
 ```bash
