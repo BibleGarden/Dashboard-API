@@ -54,10 +54,22 @@ See [migrations/README.md](migrations/README.md) for details.
 This repository owns the `cep_public` statistics schema and serves it through
 JWT-protected `/api/stats/summary` and `/api/stats/recent`. The summary includes
 request counts, errors and average latency by `bible-garden`, `lampada`, `ops`
-and historical `unknown` application. Recent requests expose and filter the
-same application identity. The `API_KEY` in this repository authenticates
+and `unknown` for historical and pre-switch requests. Recent requests expose
+and filter the same application identity. The `API_KEY` in this repository authenticates
 Dashboard-API reads; it is distinct from Bible-API's per-application keys.
-Apply the statistics migration before deploying the new Bible-API writer.
+Apply the statistics migration before deploying the new Bible-API writer. Both
+`application` columns retain `DEFAULT 'unknown'` while the old writer still
+inserts rows without naming the application. The new writer always names it.
+On the production host, after the new Dashboard-API code is installed, apply
+this migration in a fresh process:
+
+```bash
+docker exec admin-api python3 -c 'from app.config import DB_NAME; from migrations.migration_manager import MigrationManager; assert DB_NAME == "cep_admin"; m = MigrationManager(); m.ensure_migrations_table(); n = "2026_09_26_120000_add_application_to_api_request_stats.sql"; assert n in m.get_executed_migrations() or m.execute_migration(n)'
+```
+
+The original statistics migration uses `USE cep_public`, which changes the
+manager's session database. This migration qualifies both data tables as
+`cep_public.*` and leaves its execution marker in `cep_admin.migrations`.
 
 ## Documentation
 
