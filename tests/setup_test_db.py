@@ -85,6 +85,7 @@ def run_migrations():
         sql = sql.replace('`cep`.', '')
         sql = sql.replace('USE cep_public', f'USE {TEST_DB_NAME}')
         sql = sql.replace('cep_public.', f'{TEST_DB_NAME}.')
+        sql = sql.replace("table_schema = 'cep_public'", f"table_schema = '{TEST_DB_NAME}'")
 
         # Production uses utf8mb3, where varchar(10000) fits within the row size limit.
         # With utf8mb4, two varchar(10000) exceed 65535 bytes, so replace with text.

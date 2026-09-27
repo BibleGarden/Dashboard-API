@@ -26,7 +26,8 @@ def main():
     manager = MigrationManager()
     
     if command == 'migrate':
-        manager.run_migrations()
+        if not manager.run_migrations():
+            sys.exit(1)
     
     elif command == 'create':
         if len(sys.argv) < 3:

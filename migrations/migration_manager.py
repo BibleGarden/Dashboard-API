@@ -121,7 +121,7 @@ class MigrationManager:
         
         if not pending_migrations:
             print("No pending migrations")
-            return
+            return True
         
         print(f"Found {len(pending_migrations)} pending migrations")
         
@@ -129,9 +129,10 @@ class MigrationManager:
             print(f"Executing migration: {migration_file}")
             if not self.execute_migration(migration_file):
                 print(f"Migration failed: {migration_file}")
-                break
+                return False
         
         print("Migrations completed")
+        return True
     
     def create_migration(self, name: str) -> str:
         """Create a new migration file"""
