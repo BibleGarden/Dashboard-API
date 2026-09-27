@@ -1,11 +1,13 @@
 """Exercise the public-schema DDL only in a disposable MySQL schema."""
 
-import os
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 import mysql.connector
+import pytest
+
+from config import DB_HOST, DB_PASSWORD, DB_PORT, DB_USER
 
 
 MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / (
@@ -16,10 +18,10 @@ MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / (
 def test_public_voice_alignment_verse_id_migration_is_rerunnable():
     schema = f"test_voice_alignment_{uuid4().hex}"
     connection = mysql.connector.connect(
-        host=os.environ["DB_HOST"],
-        port=int(os.environ["DB_PORT"]),
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
+        host=DB_HOST,
+        port=DB_PORT,
+        user=DB_USER,
+        password=DB_PASSWORD,
         autocommit=True,
     )
     cursor = connection.cursor()
@@ -53,14 +55,14 @@ def test_public_voice_alignment_verse_id_migration_is_rerunnable():
         statements = [part.strip() for part in sql.split(";") if part.strip()]
 
         # Simulate interruption after the index DDL, then finish and rerun.
-        for statement in statements[:4]:
+        for statement in statements[:5]:
             cursor.execute(statement)
         assert _exists(cursor, schema, "statistics", "index_name",
                        "voice_alignments_translation_verse_idx") is False
         assert _exists(cursor, schema, "columns", "column_name",
                        "translation_verse") is True
 
-        for statement in statements[4:] + statements:
+        for statement in statements[5:] + statements:
             cursor.execute(statement)
         assert _exists(cursor, schema, "statistics", "index_name",
                        "voice_alignments_translation_verse_idx") is False
@@ -71,6 +73,10 @@ def test_public_voice_alignment_verse_id_migration_is_rerunnable():
             FROM `{schema}`.voice_alignments
         """)
         assert cursor.fetchone() == (7, 1, 2, 3, Decimal("1.250"), Decimal("2.750"))
+
+        cursor.execute(f"DROP TABLE `{schema}`.voice_alignments")
+        with pytest.raises(mysql.connector.Error, match="doesn't exist"):
+            cursor.execute(statements[0])
     finally:
         cursor.execute(f"DROP DATABASE IF EXISTS `{schema}`")
         cursor.close()

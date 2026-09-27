@@ -2,6 +2,11 @@
 -- directly to cep_public, which has no migration ledger.
 -- Separate guards allow a rerun after either DDL statement has committed.
 
+-- Referencing the table fails if the target schema is missing it.
+SET @alignment_table_check = (
+    SELECT COUNT(*) FROM cep_public.voice_alignments WHERE 1 = 0
+);
+
 SET @alignment_ddl = IF(
     EXISTS (SELECT 1 FROM information_schema.statistics
             WHERE table_schema = 'cep_public' AND table_name = 'voice_alignments'
