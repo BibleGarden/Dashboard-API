@@ -516,32 +516,28 @@ paths:
       security:
       - HTTPBearer: []
       parameters:
-      - name: days
+      - name: hours
         in: query
         required: false
         schema:
+          title: Hours
           type: integer
-          maximum: 365
+          maximum: 336
           minimum: 1
-          default: 30
-          title: Days
-      - name: top_group
+      - name: date_from
         in: query
         required: false
         schema:
-          title: Top Group
-          enum:
-          - scripture
-          - ai
-          - other
+          title: Date From
           type: string
-      - name: top_endpoint
+          format: date
+      - name: date_to
         in: query
         required: false
         schema:
-          title: Top Endpoint
+          title: Date To
           type: string
-          maxLength: 255
+          format: date
       responses:
         '200':
           description: Successful Response
@@ -549,6 +545,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatsSummaryResponseModel'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/stats/errors:
+    get:
+      tags:
+      - Statistics
+      summary: Get Stats Errors
+      description: Failed requests and degraded answers, from raw rows only (14-day
+        retention).
+      operationId: get_stats_errors
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: hours
+        in: query
+        required: false
+        schema:
+          title: Hours
+          type: integer
+          maximum: 336
+          minimum: 1
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          title: Date From
+          type: string
+          format: date
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          title: Date To
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsErrorsResponseModel'
         '422':
           description: Validation Error
           content:
@@ -600,8 +642,8 @@ paths:
         schema:
           title: Client Pseudonym
           type: string
-          maxLength: 40
           minLength: 1
+          maxLength: 40
           pattern: ^[0-9a-fA-F]+$
       - name: application
         in: query
@@ -1207,7 +1249,7 @@ components:
           type: string
           format: date-time
           title: Created At
-          description: Report creation time in the database's Europe/Moscow timezone
+          description: UTC time with a Z suffix
       type: object
       required:
       - id
@@ -1430,6 +1472,11 @@ components:
           type:
           - string
           - 'null'
+        degraded_reason:
+          title: Degraded Reason
+          type:
+          - string
+          - 'null'
         created_at:
           type: string
           format: date-time
@@ -1444,6 +1491,7 @@ components:
       - response_time_ms
       - client_pseudonym
       - user_agent
+      - degraded_reason
       - created_at
       title: RecentRequestRowModel
     RecentRequestsResponseModel:
@@ -1470,17 +1518,8 @@ components:
       required:
       - detail
       title: SimpleErrorResponse
-    StatsApplicationMetricsModel:
+    StatsApplicationRowModel:
       properties:
-        requests:
-          type: integer
-          title: Requests
-        errors:
-          type: integer
-          title: Errors
-        avg_response_time_ms:
-          type: integer
-          title: Avg Response Time Ms
         application:
           type: string
           enum:
@@ -1489,253 +1528,319 @@ components:
           - ops
           - unknown
           title: Application
-      type: object
-      required:
-      - requests
-      - errors
-      - avg_response_time_ms
-      - application
-      title: StatsApplicationMetricsModel
-    StatsDailyGroupRowModel:
-      properties:
-        date:
-          type: string
-          format: date
-          title: Date
-        grp:
-          type: string
-          enum:
-          - scripture
-          - ai
-          - other
-          title: Grp
         requests:
           type: integer
           title: Requests
-      type: object
-      required:
-      - date
-      - grp
-      - requests
-      title: StatsDailyGroupRowModel
-    StatsDailyRowModel:
-      properties:
-        date:
-          type: string
-          format: date
-          title: Date
-        requests:
-          type: integer
-          title: Requests
-        unique_ips:
-          type: integer
-          title: Unique Ips
+        server_errors:
+          title: Server Errors
+          type:
+          - integer
+          - 'null'
+        degraded:
+          title: Degraded
+          type:
+          - integer
+          - 'null'
         avg_response_time_ms:
           type: integer
           title: Avg Response Time Ms
-        errors:
-          type: integer
-          title: Errors
       type: object
       required:
-      - date
+      - application
       - requests
-      - unique_ips
+      - server_errors
+      - degraded
       - avg_response_time_ms
-      - errors
-      title: StatsDailyRowModel
-    StatsEndpointRowModel:
+      title: StatsApplicationRowModel
+    StatsCoverageModel:
       properties:
+        raw_since:
+          title: Raw Since
+          type:
+          - string
+          - 'null'
+        server_errors_since:
+          title: Server Errors Since
+          type:
+          - string
+          - 'null'
+          format: date
+        degraded_since:
+          title: Degraded Since
+          type:
+          - string
+          - 'null'
+          format: date
+      type: object
+      required:
+      - raw_since
+      - server_errors_since
+      - degraded_since
+      title: StatsCoverageModel
+    StatsDegradationRowModel:
+      properties:
+        reason:
+          type: string
+          title: Reason
         endpoint:
           type: string
           title: Endpoint
-        requests:
+        count:
           type: integer
-          title: Requests
-        unique_ips:
-          type: integer
-          title: Unique Ips
-        avg_response_time_ms:
-          type: integer
-          title: Avg Response Time Ms
-        errors:
-          type: integer
-          title: Errors
+          title: Count
+        last_seen:
+          type: string
+          format: date-time
+          title: Last Seen
       type: object
       required:
+      - reason
       - endpoint
-      - requests
-      - unique_ips
-      - avg_response_time_ms
-      - errors
-      title: StatsEndpointRowModel
-    StatsGroupMetricsModel:
+      - count
+      - last_seen
+      title: StatsDegradationRowModel
+    StatsErrorRowModel:
       properties:
-        requests:
+        status_code:
           type: integer
-          title: Requests
+          title: Status Code
+        method:
+          type: string
+          title: Method
+        endpoint:
+          type: string
+          title: Endpoint
+        count:
+          type: integer
+          title: Count
+        last_seen:
+          type: string
+          format: date-time
+          title: Last Seen
+      type: object
+      required:
+      - status_code
+      - method
+      - endpoint
+      - count
+      - last_seen
+      title: StatsErrorRowModel
+    StatsErrorsResponseModel:
+      properties:
+        period:
+          $ref: '#/components/schemas/StatsPeriodModel'
+        raw_available_from:
+          title: Raw Available From
+          type:
+          - string
+          - 'null'
+        partial:
+          type: boolean
+          title: Partial
         errors:
-          type: integer
+          items:
+            $ref: '#/components/schemas/StatsErrorRowModel'
+          type: array
           title: Errors
-        avg_response_time_ms:
-          type: integer
-          title: Avg Response Time Ms
+        degradations:
+          items:
+            $ref: '#/components/schemas/StatsDegradationRowModel'
+          type: array
+          title: Degradations
       type: object
       required:
-      - requests
+      - period
+      - raw_available_from
+      - partial
       - errors
-      - avg_response_time_ms
-      title: StatsGroupMetricsModel
-    StatsGroupsModel:
+      - degradations
+      title: StatsErrorsResponseModel
+    StatsPeriodModel:
       properties:
-        scripture:
-          $ref: '#/components/schemas/StatsGroupMetricsModel'
-        ai:
-          $ref: '#/components/schemas/StatsGroupMetricsModel'
-        other:
-          $ref: '#/components/schemas/StatsGroupMetricsModel'
+        mode:
+          type: string
+          enum:
+          - hours
+          - dates
+          title: Mode
+        hours:
+          title: Hours
+          type:
+          - integer
+          - 'null'
+        date_from:
+          title: Date From
+          type:
+          - string
+          - 'null'
+          format: date
+        date_to:
+          title: Date To
+          type:
+          - string
+          - 'null'
+          format: date
+        bucket:
+          type: string
+          enum:
+          - hour
+          - day
+          title: Bucket
       type: object
       required:
-      - scripture
-      - ai
-      - other
-      title: StatsGroupsModel
+      - mode
+      - hours
+      - date_from
+      - date_to
+      - bucket
+      title: StatsPeriodModel
     StatsPreviousTotalsModel:
       properties:
-        total_requests:
-          type: integer
-          title: Total Requests
-        total_errors:
-          type: integer
-          title: Total Errors
+        requests:
+          title: Requests
+          type:
+          - integer
+          - 'null'
+        unique_clients:
+          title: Unique Clients
+          type:
+          - integer
+          - 'null'
+        server_errors:
+          title: Server Errors
+          type:
+          - integer
+          - 'null'
+        client_errors:
+          title: Client Errors
+          type:
+          - integer
+          - 'null'
+        degraded:
+          title: Degraded
+          type:
+          - integer
+          - 'null'
         avg_response_time_ms:
-          type: integer
           title: Avg Response Time Ms
-        unique_ips:
-          title: Unique Ips
           type:
           - integer
           - 'null'
       type: object
       required:
-      - total_requests
-      - total_errors
+      - requests
+      - unique_clients
+      - server_errors
+      - client_errors
+      - degraded
       - avg_response_time_ms
-      - unique_ips
       title: StatsPreviousTotalsModel
-    StatsSlowEndpointRowModel:
+    StatsSeriesRowModel:
       properties:
-        endpoint:
+        bucket_start:
           type: string
-          title: Endpoint
+          title: Bucket Start
         requests:
           type: integer
           title: Requests
+        unique_clients:
+          type: integer
+          title: Unique Clients
+        server_errors:
+          title: Server Errors
+          type:
+          - integer
+          - 'null'
+        degraded:
+          title: Degraded
+          type:
+          - integer
+          - 'null'
         avg_response_time_ms:
           type: integer
           title: Avg Response Time Ms
-        max_response_time_ms:
+        scripture_requests:
           type: integer
-          title: Max Response Time Ms
+          title: Scripture Requests
+        ai_requests:
+          type: integer
+          title: Ai Requests
       type: object
       required:
-      - endpoint
+      - bucket_start
       - requests
+      - unique_clients
+      - server_errors
+      - degraded
       - avg_response_time_ms
-      - max_response_time_ms
-      title: StatsSlowEndpointRowModel
+      - scripture_requests
+      - ai_requests
+      title: StatsSeriesRowModel
     StatsSummaryResponseModel:
       properties:
-        period_days:
-          type: integer
-          title: Period Days
+        period:
+          $ref: '#/components/schemas/StatsPeriodModel'
         totals:
           $ref: '#/components/schemas/StatsTotalsModel'
-        previous_totals:
+        previous:
           $ref: '#/components/schemas/StatsPreviousTotalsModel'
-        today:
-          $ref: '#/components/schemas/StatsTodayModel'
-        groups:
-          $ref: '#/components/schemas/StatsGroupsModel'
+        coverage:
+          $ref: '#/components/schemas/StatsCoverageModel'
         applications:
           items:
-            $ref: '#/components/schemas/StatsApplicationMetricsModel'
+            $ref: '#/components/schemas/StatsApplicationRowModel'
           type: array
           title: Applications
-        daily:
+        series:
           items:
-            $ref: '#/components/schemas/StatsDailyRowModel'
+            $ref: '#/components/schemas/StatsSeriesRowModel'
           type: array
-          title: Daily
-        daily_groups:
-          items:
-            $ref: '#/components/schemas/StatsDailyGroupRowModel'
-          type: array
-          title: Daily Groups
-        top_endpoints:
-          items:
-            $ref: '#/components/schemas/StatsEndpointRowModel'
-          type: array
-          title: Top Endpoints
-        slow_endpoints:
-          items:
-            $ref: '#/components/schemas/StatsSlowEndpointRowModel'
-          type: array
-          title: Slow Endpoints
+          title: Series
       type: object
       required:
-      - period_days
+      - period
       - totals
-      - previous_totals
-      - today
-      - groups
+      - previous
+      - coverage
       - applications
-      - daily
-      - daily_groups
-      - top_endpoints
-      - slow_endpoints
+      - series
       title: StatsSummaryResponseModel
-    StatsTodayModel:
+    StatsTotalsModel:
       properties:
         requests:
           type: integer
           title: Requests
-        unique_ips:
-          type: integer
-          title: Unique Ips
+        unique_clients:
+          title: Unique Clients
+          type:
+          - integer
+          - 'null'
+        server_errors:
+          title: Server Errors
+          type:
+          - integer
+          - 'null'
+        client_errors:
+          title: Client Errors
+          type:
+          - integer
+          - 'null'
+        degraded:
+          title: Degraded
+          type:
+          - integer
+          - 'null'
         avg_response_time_ms:
           type: integer
           title: Avg Response Time Ms
-        errors:
-          type: integer
-          title: Errors
       type: object
       required:
       - requests
-      - unique_ips
+      - unique_clients
+      - server_errors
+      - client_errors
+      - degraded
       - avg_response_time_ms
-      - errors
-      title: StatsTodayModel
-    StatsTotalsModel:
-      properties:
-        total_requests:
-          type: integer
-          title: Total Requests
-        total_errors:
-          type: integer
-          title: Total Errors
-        avg_response_time_ms:
-          type: integer
-          title: Avg Response Time Ms
-        unique_ips:
-          type: integer
-          title: Unique Ips
-      type: object
-      required:
-      - total_requests
-      - total_errors
-      - avg_response_time_ms
-      - unique_ips
       title: StatsTotalsModel
     TitleModel:
       properties:
@@ -2088,7 +2193,6 @@ components:
         updated_at:
           title: Updated At
           type: string
-          format: date-time
       type: object
       required:
       - code
