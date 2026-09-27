@@ -1,17 +1,25 @@
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from database import create_connection
 from auth import RequireJWT
 from config import PUBLIC_DB_NAME
-from models import RecentRequestsResponseModel, StatsSummaryResponseModel
+from models import (
+    RecentRequestsResponseModel,
+    StatsErrorsResponseModel,
+    StatsSummaryResponseModel,
+)
+from utc_time import mysql_datetime_as_utc
 
 router = APIRouter(prefix="/stats", tags=["Statistics"])
 
-RAW_RETENTION_DAYS = 14
-SLOW_ENDPOINTS_MIN_REQUESTS = 10
-SLOW_ENDPOINTS_LIMIT = 10
-TOP_ENDPOINTS_LIMIT = 20
+# Raw api_requests rows are purged after 14 days; hour windows must fit inside.
+MAX_HOURS = 14 * 24
+DEFAULT_HOURS = 24
+MAX_RANGE_DAYS = 366
+FAILURES_LIMIT = 100
 
 # Classifies a normalized endpoint into a traffic group:
 # ai — AI endpoints, scripture — public scripture API, other — everything else.
@@ -43,335 +51,467 @@ def escape_like_literal(value: str) -> str:
     return value.replace("=", "==").replace("%", "=%").replace("_", "=_")
 
 
+@dataclass(frozen=True)
+class PeriodParams:
+    hours: Optional[int]
+    date_from: Optional[date]
+    date_to: Optional[date]
+
+
+def period_params(
+    hours: Annotated[Optional[int], Query(ge=1, le=MAX_HOURS)] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> PeriodParams:
+    """Either a rolling window of hours or an inclusive range of database dates."""
+    if hours is not None and (date_from is not None or date_to is not None):
+        raise HTTPException(422, "Use either hours or date_from and date_to, not both")
+    if (date_from is None) != (date_to is None):
+        raise HTTPException(422, "date_from and date_to must be given together")
+    if date_from is not None:
+        if date_from > date_to:
+            raise HTTPException(422, "date_from must not be after date_to")
+        if (date_to - date_from).days + 1 > MAX_RANGE_DAYS:
+            raise HTTPException(422, f"The date range must not exceed {MAX_RANGE_DAYS} days")
+    return PeriodParams(hours, date_from, date_to)
+
+
+@dataclass(frozen=True)
+class StatsPeriod:
+    """Current window [start, end) and previous window [previous_start, start),
+    as naive database wall-clock datetimes."""
+    hours: Optional[int]
+    date_from: Optional[date]
+    date_to: Optional[date]
+    start: datetime
+    end: datetime
+    previous_start: datetime
+    today: date
+
+    @property
+    def is_hours(self) -> bool:
+        return self.hours is not None
+
+    def as_response(self) -> dict:
+        return {
+            "mode": "hours" if self.is_hours else "dates",
+            "hours": self.hours,
+            "date_from": self.date_from,
+            "date_to": self.date_to,
+            "bucket": "hour" if self.is_hours else "day",
+        }
+
+
+def resolve_period(cursor, params: PeriodParams) -> StatsPeriod:
+    cursor.execute("SELECT NOW() AS now, CURDATE() AS today")
+    clock = cursor.fetchone()
+    now, today = clock["now"], clock["today"]
+    if params.date_from is None:
+        hours = DEFAULT_HOURS if params.hours is None else params.hours
+        start = now - timedelta(hours=hours)
+        # DATETIME has second precision: [start, now + 1s) includes rows written at now.
+        return StatsPeriod(hours, None, None, start, now + timedelta(seconds=1),
+                           start - timedelta(hours=hours), today)
+    if params.date_to > today:
+        raise HTTPException(
+            422, f"date_to {params.date_to} is after the database's today {today}"
+        )
+    days = (params.date_to - params.date_from).days + 1
+    start = datetime.combine(params.date_from, time.min)
+    return StatsPeriod(None, params.date_from, params.date_to, start,
+                       datetime.combine(params.date_to + timedelta(days=1), time.min),
+                       start - timedelta(days=days), today)
+
+
+def fetch_raw_available_from(cursor, db) -> Optional[datetime]:
+    cursor.execute(f"SELECT MIN(created_at) AS raw_from FROM {db}.api_requests")
+    return cursor.fetchone()["raw_from"]
+
+
+def raw_covers(raw_from: Optional[datetime], moment: datetime) -> bool:
+    return raw_from is not None and moment >= raw_from
+
+
+def fetch_counter_coverage(cursor, db, today: date) -> dict:
+    """First date counted by each nullable daily counter.
+
+    Days aggregated before the counters existed keep NULL. Today is always
+    counted, because it is read from raw rows.
+    """
+    cursor.execute(f"""
+        SELECT MIN(CASE WHEN server_error_count IS NOT NULL THEN date END)
+                   AS server_errors_since,
+               MIN(CASE WHEN degraded_count IS NOT NULL THEN date END)
+                   AS degraded_since
+        FROM {db}.api_request_daily_stats
+        WHERE endpoint = '_total_' AND application = 'all'
+    """)
+    row = cursor.fetchone()
+    return {
+        key: row[key] if row[key] is not None else today
+        for key in ("server_errors_since", "degraded_since")
+    }
+
+
+def fetch_raw_totals(cursor, db, start: datetime, end: datetime) -> dict:
+    cursor.execute(f"""
+        SELECT COUNT(*) AS requests,
+               COUNT(DISTINCT client_ip) AS unique_clients,
+               COALESCE(SUM(status_code >= 500), 0) AS server_errors,
+               COALESCE(SUM(status_code BETWEEN 400 AND 499), 0) AS client_errors,
+               COALESCE(SUM(degraded_reason IS NOT NULL), 0) AS degraded,
+               COALESCE(ROUND(AVG(response_time_ms)), 0) AS avg_response_time_ms
+        FROM {db}.api_requests
+        WHERE created_at >= %s AND created_at < %s
+    """, (start, end))
+    return {key: int(value) for key, value in cursor.fetchone().items()}
+
+
+def fetch_unique_clients(cursor, db, start: datetime, end: datetime) -> int:
+    cursor.execute(f"""
+        SELECT COUNT(DISTINCT client_ip) AS unique_clients
+        FROM {db}.api_requests
+        WHERE created_at >= %s AND created_at < %s
+    """, (start, end))
+    return cursor.fetchone()["unique_clients"]
+
+
+def fetch_date_range_totals(cursor, db, first_day: date, last_day: date,
+                            today: date) -> dict:
+    """Totals over [first_day, last_day]: daily aggregates for days before
+    today, raw rows for today. NULL daily counters are skipped by SUM."""
+    raw_start = datetime.combine(max(first_day, today), time.min)
+    raw_end = datetime.combine(last_day + timedelta(days=1), time.min)
+    cursor.execute(f"""
+        SELECT COALESCE(SUM(requests), 0) AS requests,
+               COALESCE(SUM(server_errors), 0) AS server_errors,
+               COALESCE(SUM(client_errors), 0) AS client_errors,
+               COALESCE(SUM(degraded), 0) AS degraded,
+               COALESCE(ROUND(
+                   SUM(response_time_sum) / NULLIF(SUM(requests), 0)
+               ), 0) AS avg_response_time_ms
+        FROM (
+            SELECT request_count AS requests,
+                   server_error_count AS server_errors,
+                   error_count - server_error_count AS client_errors,
+                   degraded_count AS degraded,
+                   avg_response_time_ms * request_count AS response_time_sum
+            FROM {db}.api_request_daily_stats daily_stats
+            WHERE date >= %s AND date <= %s AND date < %s
+              AND endpoint != '_total_'
+              AND {OVERALL_DAILY_FILTER.format(db=db)}
+            UNION ALL
+            SELECT COUNT(*),
+                   COALESCE(SUM(status_code >= 500), 0),
+                   COALESCE(SUM(status_code BETWEEN 400 AND 499), 0),
+                   COALESCE(SUM(degraded_reason IS NOT NULL), 0),
+                   COALESCE(SUM(response_time_ms), 0)
+            FROM {db}.api_requests
+            WHERE created_at >= %s AND created_at < %s
+        ) combined
+    """, (first_day, last_day, today, raw_start, raw_end))
+    return {key: int(value) for key, value in cursor.fetchone().items()}
+
+
+def fetch_applications(cursor, db, period: StatsPeriod) -> dict:
+    """Per-application sums keyed by application; the period's raw part only
+    in hours mode, daily aggregates plus today's raw rows in date mode."""
+    raw_start = period.start if period.is_hours else max(
+        period.start, datetime.combine(period.today, time.min)
+    )
+    daily_sql = ""
+    params: tuple = ()
+    if not period.is_hours:
+        daily_sql = f"""
+            SELECT application, request_count AS requests,
+                   server_error_count AS server_errors,
+                   degraded_count AS degraded,
+                   avg_response_time_ms * request_count AS response_time_sum
+            FROM {db}.api_request_daily_stats
+            WHERE date >= %s AND date <= %s AND date < %s
+              AND endpoint != '_total_' AND application != 'all'
+            UNION ALL
+        """
+        params = (period.date_from, period.date_to, period.today)
+    cursor.execute(f"""
+        SELECT application,
+               SUM(requests) AS requests,
+               COALESCE(SUM(server_errors), 0) AS server_errors,
+               COALESCE(SUM(degraded), 0) AS degraded,
+               COALESCE(ROUND(SUM(response_time_sum) / NULLIF(SUM(requests), 0)), 0)
+                   AS avg_response_time_ms
+        FROM (
+            {daily_sql}
+            SELECT application, COUNT(*) AS requests,
+                   SUM(status_code >= 500) AS server_errors,
+                   SUM(degraded_reason IS NOT NULL) AS degraded,
+                   SUM(response_time_ms) AS response_time_sum
+            FROM {db}.api_requests
+            WHERE created_at >= %s AND created_at < %s
+            GROUP BY application
+        ) combined
+        GROUP BY application
+    """, (*params, raw_start, period.end))
+    rows = {row["application"]: row for row in cursor.fetchall()}
+    unexpected_applications = rows.keys() - set(APPLICATIONS)
+    if unexpected_applications:
+        raise ValueError(f"Unknown request applications: {sorted(unexpected_applications)}")
+    return rows
+
+
+def fetch_hourly_series(cursor, db, period: StatsPeriod) -> list[dict]:
+    cursor.execute(f"""
+        SELECT TIMESTAMP(DATE(created_at), MAKETIME(HOUR(created_at), 0, 0)) AS bucket,
+               COUNT(*) AS requests,
+               COUNT(DISTINCT client_ip) AS unique_clients,
+               SUM(status_code >= 500) AS server_errors,
+               SUM(degraded_reason IS NOT NULL) AS degraded,
+               ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
+               SUM({GROUP_CASE} = 'scripture') AS scripture_requests,
+               SUM({GROUP_CASE} = 'ai') AS ai_requests
+        FROM {db}.api_requests
+        WHERE created_at >= %s AND created_at < %s
+        GROUP BY bucket
+    """, (period.start, period.end))
+    rows = {row["bucket"]: row for row in cursor.fetchall()}
+    series = []
+    bucket = period.start.replace(minute=0, second=0, microsecond=0)
+    while bucket < period.end:
+        row = rows.pop(bucket, None)
+        series.append({
+            "bucket_start": mysql_datetime_as_utc(bucket),
+            **{key: int(row[key]) if row else 0 for key in (
+                "requests", "unique_clients", "server_errors", "degraded",
+                "avg_response_time_ms", "scripture_requests", "ai_requests",
+            )},
+        })
+        bucket += timedelta(hours=1)
+    if rows:
+        raise ValueError(f"Hourly buckets outside the window: {sorted(rows)}")
+    return series
+
+
+def fetch_daily_series(cursor, db, period: StatsPeriod, coverage: dict) -> list[dict]:
+    raw_start = datetime.combine(period.today, time.min)
+    cursor.execute(f"""
+        SELECT date, request_count AS requests, unique_ips AS unique_clients,
+               server_error_count AS server_errors, degraded_count AS degraded,
+               avg_response_time_ms
+        FROM {db}.api_request_daily_stats daily_stats
+        WHERE date >= %s AND date <= %s AND date < %s
+          AND endpoint = '_total_'
+          AND {OVERALL_DAILY_FILTER.format(db=db)}
+        UNION ALL
+        SELECT DATE(created_at), COUNT(*), COUNT(DISTINCT client_ip),
+               SUM(status_code >= 500), SUM(degraded_reason IS NOT NULL),
+               ROUND(AVG(response_time_ms))
+        FROM {db}.api_requests
+        WHERE created_at >= %s AND created_at < %s
+        GROUP BY DATE(created_at)
+    """, (period.date_from, period.date_to, period.today, raw_start, period.end))
+    totals = {row["date"]: row for row in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT date,
+               SUM(CASE WHEN grp = 'scripture' THEN requests ELSE 0 END)
+                   AS scripture_requests,
+               SUM(CASE WHEN grp = 'ai' THEN requests ELSE 0 END) AS ai_requests
+        FROM (
+            SELECT date, {GROUP_CASE} AS grp, request_count AS requests
+            FROM {db}.api_request_daily_stats daily_stats
+            WHERE date >= %s AND date <= %s AND date < %s
+              AND endpoint != '_total_'
+              AND {OVERALL_DAILY_FILTER.format(db=db)}
+            UNION ALL
+            SELECT DATE(created_at), {GROUP_CASE}, COUNT(*)
+            FROM {db}.api_requests
+            WHERE created_at >= %s AND created_at < %s
+            GROUP BY DATE(created_at), 2
+        ) combined
+        GROUP BY date
+    """, (period.date_from, period.date_to, period.today, raw_start, period.end))
+    groups = {row["date"]: row for row in cursor.fetchall()}
+
+    series = []
+    day = period.date_from
+    while day <= period.date_to:
+        row = totals.get(day)
+        group_row = groups.get(day)
+        entry = {
+            "bucket_start": day.isoformat(),
+            "requests": int(row["requests"]) if row else 0,
+            "unique_clients": int(row["unique_clients"]) if row else 0,
+            "avg_response_time_ms": int(row["avg_response_time_ms"]) if row else 0,
+            "scripture_requests": int(group_row["scripture_requests"]) if group_row else 0,
+            "ai_requests": int(group_row["ai_requests"]) if group_row else 0,
+        }
+        for counter, since_key in (("server_errors", "server_errors_since"),
+                                   ("degraded", "degraded_since")):
+            if day < coverage[since_key]:
+                entry[counter] = None
+            elif row is None:
+                entry[counter] = 0
+            elif row[counter] is None:
+                raise ValueError(f"Daily {counter} is NULL on counted day {day}")
+            else:
+                entry[counter] = int(row[counter])
+        series.append(entry)
+        day += timedelta(days=1)
+    return series
+
+
 @router.get(
     "/summary",
     operation_id="get_stats_summary",
     response_model=StatsSummaryResponseModel,
 )
 def get_stats_summary(
-    days: int = Query(30, ge=1, le=365),
-    top_group: Annotated[
-        Optional[Literal["scripture", "ai", "other"]], Query()
-    ] = None,
-    top_endpoint: Annotated[Optional[str], Query(max_length=255)] = None,
+    params: PeriodParams = Depends(period_params),
     username: str = RequireJWT,
 ):
     connection = create_connection()
     cursor = connection.cursor(dictionary=True)
     try:
         db = PUBLIC_DB_NAME
+        period = resolve_period(cursor, params)
+        raw_from = fetch_raw_available_from(cursor, db)
+        counters = ("server_errors", "client_errors", "degraded")
 
-        current_start_days_ago = days - 1
-        previous_start_days_ago = days * 2 - 1
-
-        # Current period: historical daily aggregates through yesterday plus
-        # today's raw requests. Synthetic _total_ rows are excluded.
-        cursor.execute(f"""
-            SELECT
-                COALESCE(SUM(requests), 0) AS total_requests,
-                COALESCE(SUM(errors), 0) AS total_errors,
-                COALESCE(ROUND(
-                    SUM(response_time_sum) / NULLIF(SUM(requests), 0)
-                ), 0) AS avg_response_time_ms
-            FROM (
-                SELECT request_count AS requests,
-                       error_count AS errors,
-                       avg_response_time_ms * request_count AS response_time_sum
-                FROM {db}.api_request_daily_stats daily_stats
-                WHERE date >= CURDATE() - INTERVAL %s DAY
-                  AND date < CURDATE()
-                  AND endpoint != '_total_'
-                  AND {OVERALL_DAILY_FILTER.format(db=db)}
-                UNION ALL
-                SELECT COUNT(*) AS requests,
-                       COALESCE(SUM(status_code >= 400), 0) AS errors,
-                       COALESCE(SUM(response_time_ms), 0) AS response_time_sum
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE()
-                  AND created_at < CURDATE() + INTERVAL 1 DAY
-            ) combined
-        """, (current_start_days_ago,))
-        totals = cursor.fetchone()
-
-        # Totals for the previous period of the same length (for trend deltas)
-        cursor.execute(f"""
-            SELECT
-                COALESCE(SUM(request_count), 0) AS total_requests,
-                COALESCE(SUM(error_count), 0) AS total_errors,
-                COALESCE(ROUND(
-                    SUM(avg_response_time_ms * request_count)
-                    / NULLIF(SUM(request_count), 0)
-                ), 0) AS avg_response_time_ms
-            FROM {db}.api_request_daily_stats daily_stats
-            WHERE date >= CURDATE() - INTERVAL %s DAY
-              AND date <  CURDATE() - INTERVAL %s DAY
-              AND endpoint != '_total_'
-              AND {OVERALL_DAILY_FILTER.format(db=db)}
-        """, (previous_start_days_ago, current_start_days_ago))
-        previous_totals = cursor.fetchone()
-
-        # Unique IP-based pseudonyms from the available raw portion.
-        current_raw_start_days_ago = min(days, RAW_RETENTION_DAYS) - 1
-        cursor.execute(f"""
-            SELECT COUNT(DISTINCT client_ip) AS unique_ips
-            FROM {db}.api_requests
-            WHERE created_at >= CURDATE() - INTERVAL %s DAY
-              AND created_at < CURDATE() + INTERVAL 1 DAY
-        """, (current_raw_start_days_ago,))
-        raw_ips = cursor.fetchone()
-
-        # Unique IP-based pseudonyms for the previous period; unavailable when raw
-        # retention window cannot contain that whole calendar interval.
-        previous_unique_ips = None
-        if days * 2 <= RAW_RETENTION_DAYS:
-            cursor.execute(f"""
-                SELECT COUNT(DISTINCT client_ip) AS unique_ips
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE() - INTERVAL %s DAY
-                  AND created_at < CURDATE() - INTERVAL %s DAY
-            """, (previous_start_days_ago, current_start_days_ago))
-            previous_unique_ips = cursor.fetchone()["unique_ips"] or 0
-
-        # Traffic groups (scripture / ai / other): aggregated + today's live data
-        cursor.execute(f"""
-            SELECT grp,
-                   SUM(requests) AS requests,
-                   SUM(errors)   AS errors,
-                   ROUND(
-                       SUM(response_time_sum) / NULLIF(SUM(requests), 0)
-                   ) AS avg_response_time_ms
-            FROM (
-                SELECT {GROUP_CASE} AS grp,
-                       request_count AS requests, error_count AS errors,
-                       avg_response_time_ms * request_count AS response_time_sum
-                FROM {db}.api_request_daily_stats daily_stats
-                WHERE date >= CURDATE() - INTERVAL %s DAY
-                  AND date < CURDATE()
-                  AND endpoint != '_total_'
-                  AND {OVERALL_DAILY_FILTER.format(db=db)}
-                UNION ALL
-                SELECT {GROUP_CASE} AS grp,
-                       COUNT(*) AS requests,
-                       SUM(status_code >= 400) AS errors,
-                       SUM(response_time_ms) AS response_time_sum
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE()
-                  AND created_at < CURDATE() + INTERVAL 1 DAY
-                GROUP BY grp
-            ) combined
-            GROUP BY grp
-        """, (current_start_days_ago,))
-        groups = {
-            "scripture": {"requests": 0, "errors": 0, "avg_response_time_ms": 0},
-            "ai":        {"requests": 0, "errors": 0, "avg_response_time_ms": 0},
-            "other":     {"requests": 0, "errors": 0, "avg_response_time_ms": 0},
-        }
-        for row in cursor.fetchall():
-            groups[row["grp"]] = {
-                "requests": row["requests"] or 0,
-                "errors": row["errors"] or 0,
-                "avg_response_time_ms": row["avg_response_time_ms"] or 0,
+        if period.is_hours:
+            # Everything comes from raw rows, which carry every counter.
+            totals = fetch_raw_totals(cursor, db, period.start, period.end)
+            if raw_covers(raw_from, period.previous_start):
+                previous = fetch_raw_totals(cursor, db, period.previous_start, period.start)
+            else:
+                previous = dict.fromkeys(totals)
+            coverage = {"server_errors_since": None, "degraded_since": None}
+            counter_known = dict.fromkeys(counters, True)
+            series = fetch_hourly_series(cursor, db, period)
+        else:
+            counter_since = fetch_counter_coverage(cursor, db, period.today)
+            since = {
+                "server_errors": counter_since["server_errors_since"],
+                "client_errors": counter_since["server_errors_since"],
+                "degraded": counter_since["degraded_since"],
             }
+            previous_from = period.previous_start.date()
+            previous_to = period.date_from - timedelta(days=1)
 
-        # Historical unknown rows remain visible; today's raw rows are live.
-        cursor.execute(f"""
-            SELECT application, SUM(requests) AS requests,
-                   SUM(errors) AS errors,
-                   ROUND(SUM(response_time_sum) / NULLIF(SUM(requests), 0))
-                       AS avg_response_time_ms
-            FROM (
-                SELECT application, request_count AS requests,
-                       error_count AS errors,
-                       avg_response_time_ms * request_count AS response_time_sum
-                FROM {db}.api_request_daily_stats
-                WHERE date >= CURDATE() - INTERVAL %s DAY
-                  AND date < CURDATE() AND endpoint != '_total_'
-                  AND application != 'all'
-                UNION ALL
-                SELECT application, COUNT(*), SUM(status_code >= 400),
-                       SUM(response_time_ms)
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE()
-                  AND created_at < CURDATE() + INTERVAL 1 DAY
-                GROUP BY application
-            ) combined
-            GROUP BY application
-        """, (current_start_days_ago,))
-        application_rows = {row["application"]: row for row in cursor.fetchall()}
-        unexpected_applications = application_rows.keys() - set(APPLICATIONS)
-        if unexpected_applications:
-            raise ValueError(f"Unknown request applications: {sorted(unexpected_applications)}")
-        applications = [
-            {
-                "application": application,
-                "requests": application_rows.get(application, {}).get("requests") or 0,
-                "errors": application_rows.get(application, {}).get("errors") or 0,
-                "avg_response_time_ms": application_rows.get(application, {}).get(
-                    "avg_response_time_ms"
-                ) or 0,
+            totals = fetch_date_range_totals(
+                cursor, db, period.date_from, period.date_to, period.today
+            )
+            totals["unique_clients"] = fetch_unique_clients(
+                cursor, db, period.start, period.end
+            )
+            previous = fetch_date_range_totals(
+                cursor, db, previous_from, previous_to, period.today
+            )
+            previous["unique_clients"] = (
+                fetch_unique_clients(cursor, db, period.previous_start, period.start)
+                if raw_covers(raw_from, period.previous_start) else None
+            )
+            counter_known = {}
+            for counter in counters:
+                counter_known[counter] = since[counter] <= period.date_to
+                if not counter_known[counter]:
+                    totals[counter] = None
+                if since[counter] > previous_from:
+                    previous[counter] = None
+            coverage = {
+                key: value if value > period.date_from else None
+                for key, value in counter_since.items()
             }
-            for application in APPLICATIONS
-        ]
+            series = fetch_daily_series(cursor, db, period, counter_since)
 
-        # Daily breakdown: use _total_ rows from aggregated stats + today's live data
-        cursor.execute(f"""
-            SELECT date, requests, unique_ips,
-                   avg_response_time_ms, errors
-            FROM (
-                SELECT date, request_count AS requests, unique_ips,
-                       avg_response_time_ms, error_count AS errors
-                FROM {db}.api_request_daily_stats daily_stats
-                WHERE date >= CURDATE() - INTERVAL %s DAY
-                  AND date < CURDATE()
-                  AND endpoint = '_total_'
-                  AND (application = 'all' OR (
-                      application = 'unknown' AND NOT EXISTS (
-                          SELECT 1 FROM {db}.api_request_daily_stats all_totals
-                          WHERE all_totals.date = daily_stats.date
-                            AND all_totals.endpoint = '_total_'
-                            AND all_totals.application = 'all'
-                      )
-                  ))
-                UNION ALL
-                SELECT CURDATE() AS date, COUNT(*) AS requests,
-                       COUNT(DISTINCT client_ip) AS unique_ips,
-                       ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
-                       SUM(status_code >= 400) AS errors
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE()
-                  AND created_at < CURDATE() + INTERVAL 1 DAY
-                HAVING requests > 0
-            ) combined
-            ORDER BY date
-        """, (current_start_days_ago,))
-        daily = cursor.fetchall()
-
-        # Daily requests split by traffic group (for the chart)
-        cursor.execute(f"""
-            SELECT date, grp, SUM(requests) AS requests
-            FROM (
-                SELECT date, {GROUP_CASE} AS grp, request_count AS requests
-                FROM {db}.api_request_daily_stats daily_stats
-                WHERE date >= CURDATE() - INTERVAL %s DAY
-                  AND date < CURDATE()
-                  AND endpoint != '_total_'
-                  AND {OVERALL_DAILY_FILTER.format(db=db)}
-                UNION ALL
-                SELECT CURDATE() AS date, {GROUP_CASE} AS grp,
-                       COUNT(*) AS requests
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE()
-                  AND created_at < CURDATE() + INTERVAL 1 DAY
-                GROUP BY grp
-            ) combined
-            GROUP BY date, grp
-            ORDER BY date
-        """, (current_start_days_ago,))
-        daily_groups = cursor.fetchall()
-
-        # Top endpoints (aggregated + today's live data)
-        top_where_clauses = []
-        top_params = [current_start_days_ago]
-        if top_group is not None:
-            top_where_clauses.append("grp = %s")
-            top_params.append(top_group)
-        if top_endpoint is not None:
-            top_where_clauses.append("endpoint LIKE %s ESCAPE '='")
-            top_params.append(f"%{escape_like_literal(top_endpoint)}%")
-        top_where_sql = (
-            f"WHERE {' AND '.join(top_where_clauses)}" if top_where_clauses else ""
+        coverage["raw_since"] = (
+            raw_from if raw_from is not None and period.start < raw_from else None
         )
 
-        cursor.execute(f"""
-            SELECT endpoint, SUM(requests) AS requests, SUM(unique_ips) AS unique_ips,
-                   ROUND(
-                       SUM(response_time_sum) / NULLIF(SUM(requests), 0)
-                   ) AS avg_response_time_ms,
-                   SUM(errors) AS errors
-            FROM (
-                SELECT endpoint, {GROUP_CASE} AS grp,
-                       request_count AS requests, unique_ips,
-                       avg_response_time_ms * request_count AS response_time_sum,
-                       error_count AS errors
-                FROM {db}.api_request_daily_stats daily_stats
-                WHERE date >= CURDATE() - INTERVAL %s DAY
-                  AND date < CURDATE()
-                  AND endpoint != '_total_'
-                  AND {OVERALL_DAILY_FILTER.format(db=db)}
-                UNION ALL
-                SELECT endpoint, {GROUP_CASE} AS grp,
-                       COUNT(*) AS requests,
-                       COUNT(DISTINCT client_ip) AS unique_ips,
-                       SUM(response_time_ms) AS response_time_sum,
-                       SUM(status_code >= 400) AS errors
-                FROM {db}.api_requests
-                WHERE created_at >= CURDATE()
-                  AND created_at < CURDATE() + INTERVAL 1 DAY
-                GROUP BY endpoint, grp
-            ) combined
-            {top_where_sql}
-            GROUP BY endpoint
-            ORDER BY requests DESC
-            LIMIT {TOP_ENDPOINTS_LIMIT}
-        """, tuple(top_params))
-        top_endpoints = cursor.fetchall()
-
-        # Slowest endpoints by avg response time over the raw retention window
-        cursor.execute(f"""
-            SELECT endpoint,
-                   COUNT(*) AS requests,
-                   ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
-                   MAX(response_time_ms) AS max_response_time_ms
-            FROM {db}.api_requests
-            WHERE created_at >= NOW() - INTERVAL {RAW_RETENTION_DAYS} DAY
-            GROUP BY endpoint
-            HAVING COUNT(*) >= %s
-            ORDER BY avg_response_time_ms DESC
-            LIMIT %s
-        """, (SLOW_ENDPOINTS_MIN_REQUESTS, SLOW_ENDPOINTS_LIMIT))
-        slow_endpoints = cursor.fetchall()
-
-        # Also include today's live data from raw table
-        cursor.execute(f"""
-            SELECT
-                COUNT(*)                          AS requests,
-                COUNT(DISTINCT client_ip)          AS unique_ips,
-                ROUND(AVG(response_time_ms))       AS avg_response_time_ms,
-                SUM(status_code >= 400)            AS errors
-            FROM {db}.api_requests
-            WHERE created_at >= CURDATE()
-              AND created_at < CURDATE() + INTERVAL 1 DAY
-        """)
-        today = cursor.fetchone()
+        application_rows = fetch_applications(cursor, db, period)
+        applications = []
+        for application in APPLICATIONS:
+            row = application_rows.get(application)
+            entry = {
+                "application": application,
+                "requests": int(row["requests"]) if row else 0,
+                "avg_response_time_ms": int(row["avg_response_time_ms"]) if row else 0,
+            }
+            for counter in ("server_errors", "degraded"):
+                entry[counter] = (
+                    (int(row[counter]) if row else 0)
+                    if counter_known[counter] else None
+                )
+            applications.append(entry)
 
         return {
-            "period_days": days,
-            "totals": {
-                "total_requests": totals["total_requests"],
-                "total_errors": totals["total_errors"],
-                "avg_response_time_ms": totals["avg_response_time_ms"],
-                "unique_ips": raw_ips["unique_ips"] or 0,
-            },
-            "previous_totals": {
-                "total_requests": previous_totals["total_requests"],
-                "total_errors": previous_totals["total_errors"],
-                "avg_response_time_ms": previous_totals["avg_response_time_ms"],
-                "unique_ips": previous_unique_ips,
-            },
-            "today": {
-                "requests": today["requests"] or 0,
-                "unique_ips": today["unique_ips"] or 0,
-                "avg_response_time_ms": today["avg_response_time_ms"] or 0,
-                "errors": today["errors"] or 0,
-            },
-            "groups": groups,
+            "period": period.as_response(),
+            "totals": totals,
+            "previous": previous,
+            "coverage": coverage,
             "applications": applications,
-            "daily": daily,
-            "daily_groups": daily_groups,
-            "top_endpoints": top_endpoints,
-            "slow_endpoints": slow_endpoints,
+            "series": series,
         }
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        connection.close()
+
+
+@router.get(
+    "/errors",
+    operation_id="get_stats_errors",
+    response_model=StatsErrorsResponseModel,
+)
+def get_stats_errors(
+    params: PeriodParams = Depends(period_params),
+    username: str = RequireJWT,
+):
+    """Failed requests and degraded answers, from raw rows only (14-day retention)."""
+    connection = create_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        db = PUBLIC_DB_NAME
+        period = resolve_period(cursor, params)
+        raw_from = fetch_raw_available_from(cursor, db)
+
+        cursor.execute(f"""
+            SELECT status_code, method, endpoint,
+                   COUNT(*) AS `count`, MAX(created_at) AS last_seen
+            FROM {db}.api_requests
+            WHERE created_at >= %s AND created_at < %s AND status_code >= 400
+            GROUP BY status_code, method, endpoint
+            ORDER BY status_code >= 500 DESC, `count` DESC, last_seen DESC,
+                     status_code, endpoint, method
+            LIMIT %s
+        """, (period.start, period.end, FAILURES_LIMIT))
+        errors = cursor.fetchall()
+
+        cursor.execute(f"""
+            SELECT degraded_reason AS reason, endpoint,
+                   COUNT(*) AS `count`, MAX(created_at) AS last_seen
+            FROM {db}.api_requests
+            WHERE created_at >= %s AND created_at < %s
+              AND degraded_reason IS NOT NULL
+            GROUP BY degraded_reason, endpoint
+            ORDER BY `count` DESC, last_seen DESC, reason, endpoint
+            LIMIT %s
+        """, (period.start, period.end, FAILURES_LIMIT))
+        degradations = cursor.fetchall()
+
+        return {
+            "period": period.as_response(),
+            "raw_available_from": raw_from,
+            "partial": raw_from is not None and period.start < raw_from,
+            "errors": errors,
+            "degradations": degradations,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -425,7 +565,7 @@ def get_recent_requests(
 
         cursor.execute(f"""
             SELECT id, endpoint, application, method, status_code, response_time_ms,
-                   client_ip AS client_pseudonym, user_agent, created_at
+                   client_ip AS client_pseudonym, user_agent, degraded_reason, created_at
             FROM {db}.api_requests
             {where_sql}
             ORDER BY id DESC

@@ -103,7 +103,7 @@ def test_recent_request_serializes_utc_instant(monkeypatch):
     row = RecentRequestRowModel(
         id=1, endpoint="/api/books", application="bible-garden", method="GET",
         status_code=200, response_time_ms=10, client_pseudonym="a" * 40,
-        user_agent=None, created_at=datetime(2026, 9, 26, 9, 30),
+        user_agent=None, degraded_reason=None, created_at=datetime(2026, 9, 26, 9, 30),
     )
     assert row.model_dump(mode="json")["created_at"] == "2026-09-26T09:30:00Z"
 

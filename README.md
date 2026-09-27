@@ -61,8 +61,10 @@ See [migrations/README.md](migrations/README.md) for details.
 ## Bible-API request statistics
 
 This repository owns the `cep_public` statistics schema and serves it through
-JWT-protected `/api/stats/summary` and `/api/stats/recent`. The summary includes
-request counts, errors and average latency by `bible-garden`, `lampada`, `ops`
+JWT-protected `/api/stats/summary`, `/api/stats/errors` and `/api/stats/recent`
+(period parameters and response semantics are in `CLAUDE.md`, `stats.py`). The
+summary includes requests, unique clients, server errors, AI degradations and
+average latency with the previous period, by `bible-garden`, `lampada`, `ops`
 and `unknown` for historical and pre-switch requests. Recent requests expose
 and filter the same application identity. The `API_KEY` in this repository authenticates
 Dashboard-API reads; it is distinct from Bible-API's per-application keys.

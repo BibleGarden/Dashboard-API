@@ -64,7 +64,10 @@ docker run --rm --network mysql_default --env-file .env -e AUDIO_DIR=/tmp \
 The rest of the suite additionally needs `TEST_ADMIN_PASSWORD` — the plaintext
 of `ADMIN_PASSWORD_HASH` — in the environment; it is in neither `.env` nor
 `.env.example`, and without it `conftest.py`'s session-scoped `admin_token`
-fixture fails every test with `401 Incorrect username or password`.
+fixture fails every test with `401 Incorrect username or password`. A throwaway container
+can instead get a test-only pair: `-e ADMIN_PASSWORD_HASH=<bcrypt of a random
+password> -e TEST_ADMIN_PASSWORD=<that password>` (quote the hash; `docker run
+--env-file` does not interpolate `$`).
 
 Tests run inside the `dashboard-api` container — they depend on env vars (`API_KEY`, etc.). `conftest.py` sets `DB_NAME=cep_test` before app imports, so all tests use the test database (production DB `cep_admin` is never touched). Integration tests (`test_*_integration.py`) use `TestClient` + real test DB. Unit tests use `@patch` mocks. Re-run `setup_test_db.py` after migration or seed data changes.
 
@@ -109,36 +112,48 @@ XOR is commutative, so row order and the AUTO_INCREMENT `code` (which a rebuild 
 - **`models.py`** — Pydantic response/request models.
 - **`database.py`** — MySQL connection factory via `create_connection()`. Returns a new connection each call; callers must close it.
 - **`config.py`** — Environment variable loading. `API_KEY` and `JWT_SECRET_KEY` are required (will raise on startup if missing).
-- **`stats.py`** — JWT-protected API traffic analytics. `GET /api/stats/summary?days=N`
-  uses exactly `N` calendar dates: current `[CURDATE()-(N-1), CURDATE()+1)`
-  and previous `[CURDATE()-(2N-1), CURDATE()-(N-1))`. Historical dates come
-  from `api_request_daily_stats`; today comes from raw `api_requests`, so the
-  daily aggregate for today is deliberately excluded. Response-time averages
-  in totals, previous totals, groups and top endpoints are weighted by request
-  count. Current unique clients are counts of distinct keyed IP pseudonyms
-  over the available raw portion (at most 14 calendar
-  dates); `previous_totals.unique_ips` is `null` unless the complete previous
-  interval is inside that retention (`2 * N <= 14`). Traffic groups are
-  `/api/ai/*` → `ai`, other `/api/*` → `scripture`, and everything else →
-  `other`. Optional `top_group=scripture|ai|other` and `top_endpoint=<substring>`
-  filter only `top_endpoints`, before its ordering and limit; all other summary
-  blocks remain unfiltered. `GET /api/stats/recent` supports endpoint substring,
-  status class/code, HTTP method and `client_pseudonym` prefix filters. Recent
-  rows expose a pseudonym, not an IP address; the storage column retains its
-  historical `client_ip` name.
+- **`stats.py`** — JWT-protected API traffic analytics (ClickUp 123pfqn0m0h).
+  `GET /api/stats/summary` and `GET /api/stats/errors` take one period: either
+  `hours` (1..336, default 24) — the rolling window `[NOW()-h, NOW()]`, read
+  entirely from raw `api_requests` — or `date_from` + `date_to` (inclusive
+  database dates, at most 366 days, `date_to` not after `CURDATE()`), read from
+  `api_request_daily_stats` for days before today and from raw rows for today.
+  Mixing them, a lone date, a reversed or too long range and a future `date_to`
+  are 422. Database days are UTC on prod and Moscow locally (`DB_TIME_ZONE`);
+  datetimes in responses are UTC ISO strings. The previous period is the
+  preceding window of equal length. The summary returns `totals` (requests,
+  unique clients, 5xx `server_errors`, 4xx `client_errors`, `degraded` answers,
+  request-weighted average latency), `previous` (same keys, `null` where
+  unknown), `coverage`, per-application rows (`bible-garden`, `lampada`, `ops`,
+  historical `unknown`) and a zero-filled `series` (hourly buckets in hours
+  mode, daily in date mode, with scripture and AI request splits: `/api/ai/*` →
+  AI, other `/api/*` → scripture). Unique clients are distinct keyed IP
+  pseudonyms over raw rows; `coverage.raw_since` is set when the period starts
+  before the earliest raw row (14-day retention), and a previous period that
+  raw rows do not cover has `null` raw-based values. `server_error_count` and
+  `degraded_count` are `NULL` on days aggregated before they existed:
+  `coverage.server_errors_since`/`degraded_since` name the first counted day
+  (today when no day is counted yet) when it is after `date_from`; counters of
+  a period with no counted day, of a previous period starting before it, and
+  of such series days are `null`, never 0. Overall figures read the
+  `application='all'` endpoint and `_total_` rows, falling back per date and
+  endpoint to legacy `unknown` rows only where no `all` row exists, so a
+  recomputed legacy day is counted once and distinct clients are not summed
+  across applications. `GET /api/stats/errors` groups raw rows only:
+  `errors` by status, method and endpoint for status >= 400 (5xx first, then
+  count), `degradations` by `degraded_reason` and endpoint, 100 rows each,
+  with `raw_available_from` and `partial` (the period starts before it).
+  `GET /api/stats/recent` supports endpoint substring, status class/code, HTTP
+  method, `client_pseudonym` prefix and exact `application` filters; rows
+  expose a pseudonym, not an IP address (the storage column retains its
+  historical `client_ip` name), and `degraded_reason`.
   `tests/test_stats.py` creates and drops its own uniquely named statistics
   schema; it reads `cep_test` only for admin authentication. Do not run
   `tests/setup_test_db.py` on a shared database: that script drops `cep_test`.
-  The summary also returns counts, errors and average latency by authenticated
-  application (`bible-garden`, `lampada`, `ops`, historical and pre-switch
-  `unknown`). Recent requests expose `application` and accept an exact
-  `application` filter.
   Statistics schema migrations are owned here, while Bible-API writes and
-  aggregates the rows. Overall `application='all'` endpoint and `_total_`
-  aggregates preserve distinct-client counts across applications; historical
-  `unknown` rows remain readable. Both application columns keep the `unknown`
-  default while the old Bible-API writer is being replaced. `API_KEY` here
-  remains Dashboard-API's own read key.
+  aggregates the rows (`degraded_reason` codes are documented there). Both
+  application columns keep the `unknown` default while the old Bible-API
+  writer is being replaced. `API_KEY` here remains Dashboard-API's own read key.
 - **`checks.py`** — DB integrity check endpoints (verse counts, voice alignment validation).
 
 ### Key Patterns

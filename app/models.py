@@ -296,97 +296,123 @@ class VersionCheckModel(BaseModel):
 
 # API Statistics
 
+StatsApplication = Literal["bible-garden", "lampada", "ops", "unknown"]
+
+
+def _nullable():
+    return Field(..., json_schema_extra={"x-preserve-nullability": True})
+
+
+class StatsPeriodModel(BaseModel):
+    mode: Literal["hours", "dates"]
+    hours: Optional[int] = _nullable()
+    date_from: Optional[date] = _nullable()
+    date_to: Optional[date] = _nullable()
+    bucket: Literal["hour", "day"]
+
+
 class StatsTotalsModel(BaseModel):
-    total_requests: int
-    total_errors: int
-    avg_response_time_ms: int
-    unique_ips: int
-
-
-class StatsPreviousTotalsModel(StatsTotalsModel):
-    unique_ips: Optional[int] = Field(
-        ...,
-        json_schema_extra={"x-preserve-nullability": True},
-    )
-
-
-class StatsTodayModel(BaseModel):
     requests: int
-    unique_ips: int
-    avg_response_time_ms: int
-    errors: int
-
-
-class StatsGroupMetricsModel(BaseModel):
-    requests: int
-    errors: int
+    unique_clients: int
+    server_errors: Optional[int] = _nullable()
+    client_errors: Optional[int] = _nullable()
+    degraded: Optional[int] = _nullable()
     avg_response_time_ms: int
 
 
-class StatsGroupsModel(BaseModel):
-    scripture: StatsGroupMetricsModel
-    ai: StatsGroupMetricsModel
-    other: StatsGroupMetricsModel
+class StatsPreviousTotalsModel(BaseModel):
+    requests: Optional[int] = _nullable()
+    unique_clients: Optional[int] = _nullable()
+    server_errors: Optional[int] = _nullable()
+    client_errors: Optional[int] = _nullable()
+    degraded: Optional[int] = _nullable()
+    avg_response_time_ms: Optional[int] = _nullable()
 
 
-class StatsApplicationMetricsModel(StatsGroupMetricsModel):
-    application: Literal["bible-garden", "lampada", "ops", "unknown"]
+class StatsCoverageModel(BaseModel):
+    raw_since: Optional[datetime] = _nullable()
+    server_errors_since: Optional[date] = _nullable()
+    degraded_since: Optional[date] = _nullable()
+
+    @field_serializer("raw_since")
+    def serialize_raw_since(self, value: Optional[datetime]) -> Optional[str]:
+        return mysql_datetime_as_utc(value) if value is not None else None
 
 
-class StatsDailyRowModel(BaseModel):
-    date: date
+class StatsApplicationRowModel(BaseModel):
+    application: StatsApplication
     requests: int
-    unique_ips: int
+    server_errors: Optional[int] = _nullable()
+    degraded: Optional[int] = _nullable()
     avg_response_time_ms: int
-    errors: int
 
 
-class StatsDailyGroupRowModel(BaseModel):
-    date: date
-    grp: Literal["scripture", "ai", "other"]
+class StatsSeriesRowModel(BaseModel):
+    # UTC ISO datetime for hourly buckets, database date for daily buckets.
+    bucket_start: str
     requests: int
-
-
-class StatsEndpointRowModel(BaseModel):
-    endpoint: str
-    requests: int
-    unique_ips: int
+    unique_clients: int
+    server_errors: Optional[int] = _nullable()
+    degraded: Optional[int] = _nullable()
     avg_response_time_ms: int
-    errors: int
-
-
-class StatsSlowEndpointRowModel(BaseModel):
-    endpoint: str
-    requests: int
-    avg_response_time_ms: int
-    max_response_time_ms: int
+    scripture_requests: int
+    ai_requests: int
 
 
 class StatsSummaryResponseModel(BaseModel):
-    period_days: int
+    period: StatsPeriodModel
     totals: StatsTotalsModel
-    previous_totals: StatsPreviousTotalsModel
-    today: StatsTodayModel
-    groups: StatsGroupsModel
-    applications: list[StatsApplicationMetricsModel]
-    daily: list[StatsDailyRowModel]
-    daily_groups: list[StatsDailyGroupRowModel]
-    top_endpoints: list[StatsEndpointRowModel]
-    slow_endpoints: list[StatsSlowEndpointRowModel]
+    previous: StatsPreviousTotalsModel
+    coverage: StatsCoverageModel
+    applications: list[StatsApplicationRowModel]
+    series: list[StatsSeriesRowModel]
+
+
+class StatsErrorRowModel(BaseModel):
+    status_code: int
+    method: str
+    endpoint: str
+    count: int
+    last_seen: datetime
+
+    @field_serializer("last_seen")
+    def serialize_last_seen(self, value: datetime) -> str:
+        return mysql_datetime_as_utc(value)
+
+
+class StatsDegradationRowModel(BaseModel):
+    reason: str
+    endpoint: str
+    count: int
+    last_seen: datetime
+
+    @field_serializer("last_seen")
+    def serialize_last_seen(self, value: datetime) -> str:
+        return mysql_datetime_as_utc(value)
+
+
+class StatsErrorsResponseModel(BaseModel):
+    period: StatsPeriodModel
+    raw_available_from: Optional[datetime] = _nullable()
+    partial: bool
+    errors: list[StatsErrorRowModel]
+    degradations: list[StatsDegradationRowModel]
+
+    @field_serializer("raw_available_from")
+    def serialize_raw_available_from(self, value: Optional[datetime]) -> Optional[str]:
+        return mysql_datetime_as_utc(value) if value is not None else None
 
 
 class RecentRequestRowModel(BaseModel):
     id: int
     endpoint: str
-    application: Literal["bible-garden", "lampada", "ops", "unknown"]
+    application: StatsApplication
     method: str
     status_code: int
     response_time_ms: int
     client_pseudonym: str
-    user_agent: Optional[str] = Field(
-        ...,
-        json_schema_extra={"x-preserve-nullability": True},
-    )
+    user_agent: Optional[str] = _nullable()
+    degraded_reason: Optional[str] = _nullable()
     created_at: datetime
 
     @field_serializer("created_at")
