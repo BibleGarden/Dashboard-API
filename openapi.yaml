@@ -1811,8 +1811,10 @@ components:
           type: integer
           title: Requests
         unique_clients:
-          type: integer
           title: Unique Clients
+          type:
+          - integer
+          - 'null'
         server_errors:
           title: Server Errors
           type:

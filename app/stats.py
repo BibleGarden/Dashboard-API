@@ -400,8 +400,12 @@ def get_stats_summary(
             totals = fetch_date_range_totals(
                 cursor, db, period.date_from, period.date_to, period.today
             )
-            totals["unique_clients"] = fetch_unique_clients(
-                cursor, db, period.start, period.end
+            # Unique clients exist only in raw rows: unknown for a range that
+            # ends before them, partial (coverage.raw_since) for one that
+            # starts before them.
+            totals["unique_clients"] = (
+                fetch_unique_clients(cursor, db, period.start, period.end)
+                if raw_from is not None and period.end > raw_from else None
             )
             previous = fetch_date_range_totals(
                 cursor, db, previous_from, previous_to, period.today

@@ -279,6 +279,9 @@ class TestStats(unittest.TestCase):
     def test_counters_are_null_before_the_first_counted_day(self):
         uncounted = self._summary(**self._dates(45, 35))
         self.assertEqual(uncounted["totals"]["requests"], 200)
+        # The range ends before the earliest raw row: no unique clients at all.
+        self.assertIsNone(uncounted["totals"]["unique_clients"])
+        self.assertIsNone(uncounted["previous"]["unique_clients"])
         for key in ("server_errors", "client_errors", "degraded"):
             self.assertIsNone(uncounted["totals"][key])
             self.assertIsNone(uncounted["previous"][key])
@@ -290,6 +293,7 @@ class TestStats(unittest.TestCase):
         self.assertEqual(apps["bible-garden"]["requests"], 200)
 
         partial = self._summary(**self._dates(30))
+        self.assertEqual(partial["totals"]["unique_clients"], 4)
         self.assertEqual(partial["totals"]["server_errors"], 3)
         self.assertEqual(partial["totals"]["client_errors"], 5)
         self.assertEqual(partial["coverage"]["server_errors_since"], str(self._day(20)))
@@ -299,6 +303,22 @@ class TestStats(unittest.TestCase):
         self.assertIsNone(by_day[str(self._day(21))]["server_errors"])
         self.assertEqual(by_day[str(self._day(19))]["server_errors"], 0)
         self.assertEqual(by_day[str(self._day(10))]["server_errors"], 3)
+
+    def test_degraded_coverage_is_independent_of_server_errors(self):
+        # Recomputed legacy days get server_error_count but keep degraded_count NULL.
+        self._execute(f"""
+            UPDATE {self.stats_db}.api_request_daily_stats
+            SET degraded_count = NULL WHERE date < %s
+        """, (self._day(2),))
+        data = self._summary(**self._dates(30))
+        self.assertEqual(data["coverage"]["server_errors_since"], str(self._day(20)))
+        self.assertEqual(data["coverage"]["degraded_since"], str(self._day(2)))
+        self.assertEqual(data["totals"]["server_errors"], 3)
+        self.assertEqual(data["totals"]["degraded"], 1)
+        by_day = {row["bucket_start"]: row for row in data["series"]}
+        self.assertEqual(by_day[str(self._day(10))]["server_errors"], 3)
+        self.assertIsNone(by_day[str(self._day(10))]["degraded"])
+        self.assertEqual(by_day[str(self._day(2))]["degraded"], 0)
 
     def test_only_today_is_counted_when_no_day_has_counters(self):
         self._execute(f"""

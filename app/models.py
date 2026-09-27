@@ -313,7 +313,7 @@ class StatsPeriodModel(BaseModel):
 
 class StatsTotalsModel(BaseModel):
     requests: int
-    unique_clients: int
+    unique_clients: Optional[int] = _nullable()
     server_errors: Optional[int] = _nullable()
     client_errors: Optional[int] = _nullable()
     degraded: Optional[int] = _nullable()

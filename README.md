@@ -68,6 +68,11 @@ average latency with the previous period, by `bible-garden`, `lampada`, `ops`
 and `unknown` for historical and pre-switch requests. Recent requests expose
 and filter the same application identity. The `API_KEY` in this repository authenticates
 Dashboard-API reads; it is distinct from Bible-API's per-application keys.
+Deploy order for the failure counters (ClickUp 123pfqn0m0h): the
+`2026_09_27_120000` migration first, then Bible-API (writes `degraded_reason`
+and the daily counters), then this service together with Dashboard-Web — the
+old web page does not understand the new `/api/stats/summary` shape. In date
+mode yesterday reads 0 until the nightly aggregation has run (see `CLAUDE.md`).
 Apply the statistics migration before deploying the new Bible-API writer. Both
 `application` columns retain `DEFAULT 'unknown'` while the old writer still
 inserts rows without naming the application. The new writer always names it.

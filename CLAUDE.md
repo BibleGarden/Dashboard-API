@@ -143,6 +143,13 @@ XOR is commutative, so row order and the AUTO_INCREMENT `code` (which a rebuild 
   `errors` by status, method and endpoint for status >= 400 (5xx first, then
   count), `degradations` by `degraded_reason` and endpoint, 100 rows each,
   with `raw_available_from` and `partial` (the period starts before it).
+  Current `unique_clients` in date mode is `null` when the range ends before
+  the earliest raw row. The two counters have independent coverage:
+  Bible-API's `aggregate_stats --recompute-since` fills `server_error_count`
+  for recent legacy days but leaves `degraded_count` NULL there. Days before
+  today come only from daily aggregates: between midnight (DB time) and the
+  nightly aggregation run, or while that cron is failing, yesterday has no
+  daily rows and shows 0 in date mode, while hours mode still sees it.
   `GET /api/stats/recent` supports endpoint substring, status class/code, HTTP
   method, `client_pseudonym` prefix and exact `application` filters; rows
   expose a pseudonym, not an IP address (the storage column retains its
