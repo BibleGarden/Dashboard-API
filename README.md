@@ -1,6 +1,6 @@
 # Dashboard API
 
-Admin REST API for [Bible Garden](https://github.com/Bible-Garden) — data management, quality control, and export.
+Admin REST API for [Bible Garden](https://github.com/BibleGarden) — data management, quality control, and export.
 
 Built with FastAPI and MySQL.
 
